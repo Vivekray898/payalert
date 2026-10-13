@@ -1,0 +1,40 @@
+# Gradle
+.gradle/
+build/
+**/build/
+
+# Android build output
+local.properties
+*.iml
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# APKs and compiled files
+*.class
+*.dex
+*.apk
+*.aab
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# IDE
+.vscode/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+secrets.properties
+
+# Claude local settings
+.claude/
+.agents/
+
+# Temporary extraction files
+.apk_extract/

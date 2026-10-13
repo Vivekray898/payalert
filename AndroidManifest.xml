@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.vivekray898.payalert">
+
+    <!-- Required permissions for payment detection -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.CAMERA" /> <!-- for QR; optional -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.READ_BASIC_PHONE_STATE" />
+
+    <!-- Optional: Truecaller (not compiled in; keep permission if you integrate later) -->
+    <!-- <uses-permission android:name="com.truecaller.permission.sdk.internal.read_account_state" /> -->
+
+    <application
+        android:allowBackup="true"
+        android:appCategory="productivity"
+        android:enableRecoverableContent="true"
+        android:extractExtractedResource="true"
+        android:hardwareAccelerated="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="PayAlert"
+        android:largeHeap="false"
+        android:networkSecurityConfig="@xml/network_security"
+        android:theme="@style/Theme.PayAlert">
+
+        <!-- Launcher -->
+        <activity
+            android:name=".ui.auth.SplashActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Main hub -->
+        <activity
+            android:name=".ui.main.MainActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- Auth gate -->
+        <activity
+            android:name=".ui.auth.SignInActivity"
+            android:exported="false"
+            android:theme="@style/Theme.PayAlert.NoActionBar" />
+
+        <!-- TTS settings -->
+        <activity
+            android:name=".ui.settings.TtsSettingsActivity"
+            android:exported="false"
+            android:parentActivityName=".ui.main.MainActivity" />
+
+        <!-- Language / region picker -->
+        <activity
+            android:name=".ui.settings.LanguagePickerActivity"
+            android:exported="false"
+            android:parentActivityName=".ui.settings.TtsSettingsActivity" />
+
+        <!-- Subscription / manage -->
+        <activity
+            android:name=".ui.subscription.SubscriptionActivity"
+            android:exported="false"
+            android:parentActivityName=".ui.main.MainActivity" />
+        <activity
+            android:name=".ui.settings.subscription.ManageSubscriptionActivity"
+            android:exported="false"
+            android:parentActivityName=".ui.subscription.SubscriptionActivity" />
+
+        <!-- Cashbook add/edit -->
+        <activity
+            android:name=".ui.cashbook.AddEditCashBookEntryActivity"
+            android:exported="false"
+            android:parentActivityName=".ui.main.MainActivity" />
+
+        <!-- Upcoming payments -->
+        <activity
+            android:name=".ui.passbook.UpcomingPaymentsActivity"
+            android:exported="false"
+            android:parentActivityName=".ui.main.MainActivity" />
+
+        <!-- QR scanner -->
+        <activity
+            android:name=".ui.qr.QrScannerActivity"
+            android:exported="false"
+            android:windowSoftInputMode="stateHidden" />
+
+        <!-- Faq -->
+        <activity
+            android:name=".ui.faq.FaqActivity"
+            android:exported="false"
+            android:parentActivityName=".ui.main.MainActivity" />
+
+        <!-- Team / device management -->
+        <activity
+            android:name=".ui.team.TeamActivity"
+            android:exported="false"
+            android:parentActivityName=".ui.main.MainActivity" />
+
+        <!-- Referral -->
+        <activity
+            android:name=".ui.referral.ReferralActivity"
+            android:exported="false"
+            android:parentActivityName=".ui.main.MainActivity" />
+
+        <!-- WebView (terms, privacy) -->
+        <activity
+            android:name=".ui.web.WebViewActivity"
+            android:exported="false" />
+
+        <!-- Widget config -->
+        <activity
+            android:name=".ui.widget.WidgetConfigActivity"
+            android:exported="false"
+            android:parentActivityName=".ui.main.MainActivity" />
+
+        <!-- Services -->
+        <service
+            android:name=".services.PaymentMonitorService"
+            android:exported="false"
+            android:foregroundService="true"
+            android:permission="android.permission.BIND_FOREGROUND_SERVICE">
+            <intent-filter>
+                <action android:name="com.vivekray898.payalert.ACTION_PAYMENT_EVENT" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".services.NotificationListenerService"
+            android:exported="false"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationService" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".services.SmsBroadcastReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </service>
+
+        <receiver
+            android:name=".services.BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".services.ServiceRestartReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.USER_PRESENT" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".services.PaymentReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.vivekray898.payalert.PAYMENT_EVENT" />
+            </intent-filter>
+        </receiver>
+
+        <!-- NFC (optional, not implemented yet) -->
+        <!-- <receiver android:name=".services.NfcIntentHandler"> -->
+
+
+        <!-- Supabase-related receivers / intents can go here -->
+
+        <provider
+            android:name="androidx.multidex.MultiDex"
+            android:exported="false">
+        </provider>
+
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-3940256099942544~3347511713"/>
+
+    </application>
+
+</manifest>
