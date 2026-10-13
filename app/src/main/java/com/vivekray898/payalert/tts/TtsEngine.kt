@@ -1,100 +1,154 @@
 package com.vivekray898.payalert.tts
 
 import android.content.Context
+import android.media.AudioManager
+import android.media.ToneGenerator
+import android.os.Build
+import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
+import com.vivekray898.payalert.settings.AppSettings
+import com.vivekray898.payalert.settings.SoundMode
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
-import java.util.Map
+import java.util.UUID
 
 /**
- * Thin wrapper around Android's TextToSpeech.
- * Handles init, language/speed/pitch/volume config, and announcement dispatch.
- * All UI should go through this class; it is @Singleton-scoped and
- * thread-safe for the single-use case (one TtsEngine per app process).
+ * Thin, null-safe wrapper around [TextToSpeech] plus an optional chime and vibration.
+ *
+ * The chime is generated on the device (no bundled audio assets — none were copied from the
+ * reference app). Settings are read from [AppSettings] at every announcement, so a change in
+ * the settings screen takes effect on the next payment without re-creating the engine.
  */
-class TtsEngine @Inject constructor(
-    private val context: Context
-) : AutoCloseable {
+class TtsEngine(
+    private val context: Context,
+    private val settings: AppSettings
+) {
+    private var engine: TextToSpeech? = null
+    private var pendingText: String? = null
 
-    private lateinit var tts: TextToSpeech
-    private var initStatus: Int = TextToSpeech.ERROR
-    private var currentLanguage: String = ""
-    private var currentSpeed: Float = 1.0f
-    private var currentPitch: Float = 1.0f
-    private var currentVolume: Float = 1.0f
-    private var currentUtteranceId: String = ""
+    private val _ready = MutableStateFlow(false)
+    val ready: StateFlow<Boolean> = _ready.asStateFlow()
 
-    // --- Public API ---
-
-    /** Non-blocking init; caller must observe via listener or query status. */
-    fun init(listener: (Int) -> Unit) {
-        if (initStatus != TextToSpeech.SUCCESS) {
-            initStatus = tts = TextToSpeech(context, object : TextToSpeech.OnInitListener {
-                override fun onInit(status: Int) {
-                    initStatus = status
-                    listener(status)
+    @Synchronized
+    fun ensureInitialized() {
+        if (engine != null) return
+        engine = TextToSpeech(context.applicationContext) { status ->
+            val ok = status == TextToSpeech.SUCCESS
+            _ready.value = ok
+            if (ok) {
+                engine?.let { applySettings(it) }
+                pendingText?.let { text ->
+                    pendingText = null
+                    speakNow(text)
                 }
-            })
-        } else {
-            listener(initStatus)
+            }
         }
     }
 
-    /** Set the spoken language. Falls back to device default if unsupported. */
-    fun setLanguage(lang: String) {
-        currentLanguage = lang
-        if (tts.isLanguageAvailable(lang) >= TextToSpeech.AVAILABLE) {
-            tts.setLanguage(Locale.forLanguageTag(lang))
+    /** Signal a payment according to the configured sound mode. */
+    fun announce(text: String) {
+        val snapshot = settings.state.value
+        when (snapshot.soundMode) {
+            SoundMode.SPEECH -> speak(text)
+            SoundMode.CHIME_AND_SPEECH -> {
+                chime(snapshot.volume)
+                vibrateIfEnabled(snapshot.vibrate)
+                speak(text)
+            }
+            SoundMode.CHIME_ONLY -> {
+                chime(snapshot.volume)
+                vibrateIfEnabled(snapshot.vibrate)
+            }
+            SoundMode.SILENT -> Unit
         }
     }
 
-    /** Set speech speed (range 0.1–2.0 per Android docs). */
-    fun setSpeed(speed: Float) {
-        currentSpeed = math.max(0.1f, math.min(2.0f, speed))
-        if (tts.isSpeaking) tts.setSpeechRate(currentSpeed)
+    /** Speak [text], initialising the engine on first use. */
+    fun speak(text: String) {
+        if (text.isBlank()) return
+        ensureInitialized()
+        if (_ready.value) speakNow(text) else pendingText = text
     }
 
-    /** Set speech pitch (range 0.0–2.0 per Android docs). */
-    fun setPitch(pitch: Float) {
-        currentPitch = math.max(0.0f, math.min(2.0f, pitch))
-        if (tts.isSpeaking) tts.setSpeechPitch(currentPitch)
-    }
-
-    /** Set volume (range 0.0–1.0). */
-    fun setVolume(volume: Float) {
-        currentVolume = math.max(0.0f, math.min(1.0f, volume))
-        if (tts.isSpeaking) tts.setVolume(currentVolume, currentVolume)
-    }
-
-    /** Speak the given text with current settings; use a unique utteranceId for control. */
-    fun announce(text: String, utteranceId: String? = null) {
-        if (tts.isSpeaking) tts.stop()
-        currentUtteranceId = utteranceId ?: java.util.UUID.randomUUID().toString()
-        val params = mapOf(
-            TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID to currentUtteranceId,
-            TextToSpeech.Engine.KEY_PARAM_TEXT to text
-        )
-        // Apply stored settings
-        tts.setSpeechRate(currentSpeed)
-        tts.setSpeechPitch(currentPitch)
-        tts.setVolume(currentVolume, currentVolume)
-        tts.speak(text, TextToSpeech.QUEUE_FLUSH, params, currentUtteranceId)
-    }
-
-    /** Stop any ongoing synthesis. */
+    /** Stop any in-progress utterance. */
     fun stop() {
-        if (tts.isSpeaking) tts.stop()
+        engine?.stop()
     }
 
-    /** Release the TTS engine; call on app exit. */
-    override fun close() {
-        if (tts != null) {
-            tts.stop()
-            tts.shutdown()
-            tts = null
+    private fun speakNow(text: String) {
+        val tts = engine ?: return
+        val snapshot = settings.state.value
+        applySettings(tts)
+        // TextToSpeech has no setVolume(); volume travels in the utterance params.
+        val params = Bundle().apply {
+            putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, snapshot.volume.coerceIn(0f, 1f))
+        }
+        tts.speak(text, TextToSpeech.QUEUE_FLUSH, params, UUID.randomUUID().toString())
+    }
+
+    private fun applySettings(tts: TextToSpeech) {
+        val snapshot = settings.state.value
+        tts.setSpeechRate(snapshot.speechRate.coerceIn(0.1f, 2.0f))
+        tts.setPitch(snapshot.pitch.coerceIn(0.1f, 2.0f))
+        tts.setLanguage(localeFor(snapshot.languageTag))
+    }
+
+    /** Short, generated tone used as the "new payment" cue. */
+    private fun chime(volume: Float) {
+        try {
+            val generator = ToneGenerator(AudioManager.STREAM_NOTIFICATION, (volume * 100).toInt())
+            generator.startTone(ToneGenerator.TONE_PROP_BEEP2, 250)
+            // Release shortly after the tone finishes so we do not leak the generator.
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                runCatching { generator.release() }
+            }, 700)
+        } catch (error: RuntimeException) {
+            // ToneGenerator can fail when audio resources are exhausted; the announcement
+            // itself still happens, so this is not fatal.
         }
     }
 
-    /** Quick check: is TTS currently speaking? */
-    fun isSpeaking(): Boolean = tts.isSpeaking()
+    private fun vibrateIfEnabled(enabled: Boolean) {
+        if (!enabled) return
+        try {
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val manager = context.getSystemService(VibratorManager::class.java)
+                manager?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            } ?: return
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createOneShot(120, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(120)
+            }
+        } catch (error: RuntimeException) {
+            // Vibration is a nicety; never let it break the announcement.
+        }
+    }
+
+    private fun localeFor(tag: String): Locale =
+        if (tag.isBlank()) Locale.getDefault() else Locale.forLanguageTag(tag)
+
+    /** True when the platform speech engine accepted the current language. */
+    fun isLanguageAvailable(): Boolean {
+        val tts = engine ?: return false
+        return tts.isLanguageAvailable(localeFor(settings.state.value.languageTag)) >=
+            TextToSpeech.LANG_AVAILABLE
+    }
+
+    fun shutdown() {
+        engine?.stop()
+        engine?.shutdown()
+        engine = null
+        _ready.value = false
+    }
 }

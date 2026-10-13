@@ -1,158 +1,207 @@
 package com.vivekray898.payalert.parsers
 
-import com.vivekray898.payalert.data.model.PaymentEvent
-import java.util.regex.Pattern
-import java.util.regex.Matcher
+import java.util.Locale
 
 /**
- * ParserRegistry discovers which parser matches a given SMS body / notification text.
- * Each parser is a pure function (no Android context), making it trivially testable.
- * Rules are loaded from res/raw/parsers.json at runtime; the initial set below
- * are hardcoded as compile-time fallbacks.
+ * Config-driven parser for Indian bank SMS alerts and UPI/bank notification text.
  *
- * Design goal: adding a new bank = add a rule JSON entry + a small code path;
- * do NOT copy regex patterns from the reference app's parser_config.json.
+ * Every rule comes from [ParserConfig], which is loaded from `assets/parser_config.json`.
+ * This class contains no bank-specific literals, so adding a bank is a data change.
+ *
+ * All methods are pure (no Android types), so the whole rule set is unit-testable.
  */
-class ParserRegistry {
+class ParserRegistry(private val config: ParserConfig) {
 
-    // -----------------------------------------------------------------
-    // Hardcoded fallback parsers (compile-time; overridden by runtime JSON if present)
-    // -----------------------------------------------------------------
+    private val amountRegexes = config.patterns.amount.map(::Regex) + foreignAmountRegexes()
+    private val referenceRegexes = config.patterns.reference.map(::Regex)
+    private val accountRegexes = config.patterns.account.map(::Regex)
+    private val balanceRegexes = config.patterns.balance.map(::Regex)
+    private val creditMerchantRegexes = config.merchant.credit.map(::Regex)
+    private val debitMerchantRegexes = config.merchant.debit.map(::Regex)
+    private val upiNarrationRegex = config.merchant.upiNarration.takeIf { it.isNotBlank() }?.let(::Regex)
+    private val vpaRegex = config.merchant.vpa.takeIf { it.isNotBlank() }?.let(::Regex)
+    private val stopWords = config.merchant.stopWords.map { it.lowercase(Locale.US) }.toSet()
+    private val ignoredUpiHandles = config.merchant.upiHandlesToIgnore.map { it.uppercase(Locale.US) }.toSet()
+    private val skipCategories = config.skip.categories()
+    private val bankSenders = config.banks
+        .flatMap { bank -> bank.senders.map { it.uppercase(Locale.US) to bank } }
+        .sortedByDescending { it.first.length }
 
-    /** Match generic Indian bank credit: "Rs 5000.00 received from HDFC Card on 12/05" */
-    fun parseGenericCredit(body: String): ParsedEvent? {
-        val regex = Regex("""Rs\\s*([0-9,]+\.?\\d*)\\s+received\\s+from\\s+([^\\s]+)""i)
-        val m = regex.search(body)
-        if (m === null) return null
-        val amount = parseAmount(m.group(1))
-        val merchant = m.group(2)
-        return ParsedEvent(
-            eventId = java.util.UUID.randomUUID().toString(),
-            kind = "credit",
-            amount = amount,
-            bankOrUpi = "generic",
-            merchant = merchant,
-            utr = null,
-            txId = null,
-            sender = m.group(0), // full matched text
-            rawBody = null,
-            receivedAtMillis = null,
-            eventMillis = null,
-            category = "income"
+    /**
+     * Amount patterns for non-default currencies, derived from the configured currency
+     * table so a foreign-currency alert is still parsed without hardcoding any code.
+     */
+    private fun foreignAmountRegexes(): List<Regex> {
+        val codes = config.currency.keys.filterNot { it.equals(config.defaultCurrency, ignoreCase = true) }
+        if (codes.isEmpty()) return emptyList()
+        val alternation = codes.joinToString("|") { Regex.escape(it) }
+        return listOf(
+            Regex("(?i)\\b(?:$alternation)\\s*([0-9][0-9,]*(?:\\.[0-9]{1,2})?)"),
+            Regex("(?i)([0-9][0-9,]*(?:\\.[0-9]{1,2})?)\\s*(?:$alternation)\\b")
         )
     }
 
-    /** Hardcoded HDFC card pattern (read-only reference; NOT copied verbatim). */
-    fun parseHdfcCard(body: String): ParsedEvent? {
-        // This pattern mirrors the reference's HDFC "At … On" rule but is a independently-written
-        // simplified version; the reference uses BETWEEN_MARKERS with preconditions etc.
-        val regex = Regex("""At\\s+([^\\s]+)\\s+On\\s+([^\\s]+)""i)
-        val m = regex.search(body)
-        if (m === null) return null
-        val amount = parseAmount(m.group(0)) // fallback: use full match
-        val merchant = m.group(1)
+    /** Parse one message. Returns null when the text is not a settled payment alert. */
+    fun parse(text: String, senderOrPackage: String? = null): ParsedEvent? {
+        if (text.isBlank()) return null
+        val body = normalize(text)
+        if (body.length < 4) return null
+        if (skipCategory(body) != null) return null
+
+        val kind = detectKind(body) ?: return null
+        val amount = extractAmount(body) ?: return null
+        if (amount <= 0.0) return null
+
         return ParsedEvent(
-            eventId = java.util.UUID.randomUUID().toString(),
-            kind = "credit",
+            kind = kind,
             amount = amount,
-            bankOrUpi = "hdfc",
-            merchant = merchant,
-            utr = null,
-            txId = null,
-            sender = m.group(0),
-            rawBody = null,
-            receivedAtMillis = null,
-            eventMillis = null,
-            category = "income"
+            currency = detectCurrency(body),
+            bankOrUpi = inferSource(body, senderOrPackage),
+            merchant = extractMerchant(body, kind),
+            utr = extractReference(body),
+            account = extractAccount(body),
+            balance = extractBalance(body),
+            category = if (kind == "credit") "income" else "expense",
+            rawText = body,
+            parserName = PARSER_NAME
         )
     }
 
-    /** Parse generic UPI intent: "UPI/abc@upi received Rs 100 from xyz" */
-    fun parseUpiIntent(body: String): ParsedEvent? {
-        val regex = Regex("""UPI[/\\s]*([^\\s]+)\\s+received\\s+Rs?\\s*([0-9,]+\.?\\d*)""i)
-        val m = regex.search(body)
-        if (m === null) return null
-        val amount = parseAmount(m.group(2))
-        val merchant = m.group(1)
-        return ParsedEvent(
-            eventId = java.util.UUID.randomUUID().toString(),
-            kind = "credit",
-            amount = amount,
-            bankOrUpi = "upi",
-            merchant = merchant,
-            utr = null,
-            txId = null,
-            sender = m.group(0),
-            rawBody = null,
-            receivedAtMillis = null,
-            eventMillis = null,
-            category = "income"
-        )
+    fun normalize(text: String): String =
+        text.replace('\n', ' ').replace(WHITESPACE, " ").trim()
+
+    // ------------------------------------------------------------------
+    // Skip rules — messages that mention money but are not a settled payment
+    // ------------------------------------------------------------------
+
+    /** Returns the skip category that matched, or null when the message is a real payment. */
+    fun skipCategory(body: String): String? {
+        val lower = body.lowercase(Locale.US)
+        for ((category, keywords) in skipCategories) {
+            if (keywords.any { lower.contains(it.lowercase(Locale.US)) }) return category
+        }
+        return null
     }
 
-    /** Parse generic bank debit: "Rs 200.00 debited to Merchant Name" */
-    fun parseGenericDebit(body: String): ParsedEvent? {
-        val regex = Regex("""Rs\\s*([0-9,]+\.?\\d*)\\s+debited\\s+to\\s+([^\\s]+)""i)
-        val m = regex.search(body)
-        if (m === null) return null
-        val amount = parseAmount(m.group(1))
-        val merchant = m.group(2)
-        return ParsedEvent(
-            eventId = java.util.UUID.randomUUID().toString(),
-            kind = "debit",
-            amount = amount,
-            bankOrUpi = "generic",
-            merchant = merchant,
-            utr = null,
-            txId = null,
-            sender = m.group(0),
-            rawBody = null,
-            receivedAtMillis = null,
-            eventMillis = null,
-            category = "expense"
-        )
+    // ------------------------------------------------------------------
+    // Direction
+    // ------------------------------------------------------------------
+
+    fun detectKind(body: String): String? {
+        val lower = body.lowercase(Locale.US)
+        val hasDebit = config.direction.debit.any { matches(lower, it) }
+        val hasCredit = config.direction.credit.any { matches(lower, it) }
+        return when {
+            hasDebit && !hasCredit -> "debit"
+            hasCredit && !hasDebit -> "credit"
+            hasDebit && hasCredit ->
+                if (config.direction.debitWins.any { matches(lower, it) }) "debit" else "credit"
+            else -> null
+        }
     }
 
-    /** Parse SARFAESI / recovery notice: "Your loan EMI of Rs 5000 is due" — not a payment, skip. */
-    fun parseSkip(body: String): Boolean {
-        val lower = body.toLowerCase()
-        return lower.contains("emi") || lower.contains("overdue") || lower.contains("default")
+    /** Whole words for single tokens, so "sent" cannot fire inside "consent". */
+    private fun matches(lowerBody: String, keyword: String): Boolean =
+        if (keyword.contains(' ')) {
+            lowerBody.contains(keyword)
+        } else {
+            Regex("\\b" + Regex.escape(keyword) + "\\b").containsMatchIn(lowerBody)
+        }
+
+    // ------------------------------------------------------------------
+    // Field extraction
+    // ------------------------------------------------------------------
+
+    fun extractAmount(body: String): Double? =
+        firstGroup(amountRegexes, body)?.replace(",", "")?.toDoubleOrNull()
+
+    fun extractReference(body: String): String? = firstGroup(referenceRegexes, body)?.trim()
+
+    fun extractAccount(body: String): String? =
+        firstGroup(accountRegexes, body)?.replace(" ", "")?.uppercase(Locale.US)
+
+    fun extractBalance(body: String): Double? =
+        firstGroup(balanceRegexes, body)?.replace(",", "")?.toDoubleOrNull()
+
+    private fun firstGroup(regexes: List<Regex>, body: String): String? {
+        for (regex in regexes) {
+            val match = regex.find(body) ?: continue
+            val value = match.groupValues.getOrNull(1)
+            if (!value.isNullOrBlank()) return value
+        }
+        return null
     }
 
-    // -----------------------------------------------------------------
-    // Internal helpers
-    // -----------------------------------------------------------------
-
-    private fun parseAmount(raw: String): Double {
-        // Remove commas, parse as Double; fall back to 0.0
-        val cleaned = raw.replace(",", "").trim()
-        return cleaned.toDoubleOrNull() ?: 0.0
+    fun extractMerchant(body: String, kind: String): String? {
+        val regexes = if (kind == "credit") creditMerchantRegexes else debitMerchantRegexes
+        for (regex in regexes) {
+            val raw = regex.find(body)?.groupValues?.getOrNull(1) ?: continue
+            cleanMerchant(raw)?.let { return it }
+        }
+        return extractUpiHandle(body)
     }
 
-    /** Try every hardcoded parser in order; return the first non-null result.
-     *  Callers should also check the runtime-loaded JSON rules (not implemented yet). */
-    fun tryParseAll(body: String): ParsedEvent? {
-        return parseGenericCredit(body)
-            ?: parseHdfcCard(body)
-            ?: parseUpiIntent(body)
-            ?: parseGenericDebit(body)
+    /** UPI narrations look like "UPI/PAYTM/1234/ACME" or "VPA acme@ybl". */
+    private fun extractUpiHandle(body: String): String? {
+        val narration = upiNarrationRegex?.find(body)?.groupValues?.getOrNull(1)
+        if (!narration.isNullOrBlank() && narration.uppercase(Locale.US) !in ignoredUpiHandles) {
+            return narration
+        }
+        return vpaRegex?.find(body)?.groupValues?.getOrNull(1)
+    }
+
+    private fun cleanMerchant(raw: String): String? {
+        val trimmed = raw
+            .trim()
+            .trim('.', ',', ';', ':', '-', ' ')
+            .replace(LEADING_LABEL, "")
+            .trim()
+            .replace(WHITESPACE, " ")
+        if (trimmed.length < 2) return null
+        if (trimmed.lowercase(Locale.US) in stopWords) return null
+        if (trimmed.all { it.isDigit() }) return null
+        return trimmed.take(60)
+    }
+
+    fun detectCurrency(body: String): String {
+        val lower = body.lowercase(Locale.US)
+        for ((code, markers) in config.currency) {
+            if (markers.any { lower.contains(it.lowercase(Locale.US)) }) return code
+        }
+        return config.defaultCurrency
+    }
+
+    // ------------------------------------------------------------------
+    // Source (bank / payment app) inference
+    // ------------------------------------------------------------------
+
+    fun inferSource(body: String, senderOrPackage: String?): String? {
+        val packageName = senderOrPackage?.trim().orEmpty()
+        if (packageName.isNotEmpty()) {
+            config.wallets.firstOrNull { wallet ->
+                wallet.packages.any { it.equals(packageName, ignoreCase = true) }
+            }?.let { return it.name }
+        }
+
+        val sender = packageName.uppercase(Locale.US).replace(NON_ALPHANUMERIC, "")
+        if (sender.isNotEmpty()) {
+            bankSenders.firstOrNull { (prefix, _) -> sender.contains(prefix) }?.let { return it.second.name }
+        }
+
+        val lower = body.lowercase(Locale.US)
+        config.banks.forEach { bank ->
+            if (bank.keywords.any { lower.contains(it.lowercase(Locale.US)) }) return bank.name
+        }
+        config.wallets.forEach { wallet ->
+            if (wallet.keywords.any { lower.contains(it.lowercase(Locale.US)) }) return wallet.name
+        }
+        return null
+    }
+
+    private companion object {
+        const val PARSER_NAME = "config-v1"
+        val WHITESPACE = Regex("\\s+")
+        val NON_ALPHANUMERIC = Regex("[^A-Z0-9]")
+        val LEADING_LABEL = Regex("(?i)^(?:vpa|upi|to|from)[\\s/:]+")
     }
 }
-
-/** Data class representing a successfully parsed payment event.
- *  All fields are nullable where the parser couldn't observe them.
- */
-data class ParsedEvent(
-    val eventId: String,
-    val kind: String, // "credit" or "debit"
-    val amount: Double,
-    val bankOrUpi: String?, // e.g. "hdfc", "upi", "generic"
-    val merchant: String?, // observed merchant name
-    val utr: String?, // UPI transaction reference (optional)
-    val txId: String?, // Razorpay / internal tx id (optional)
-    val sender: String?, // full matched SMS / notification text snippet
-    val rawBody: String?, // original SMS body (optional)
-    val receivedAtMillis: Long?, // when the event occurred (optional)
-    val eventMillis: Long?, // epoch millis (optional)
-    val category: String? // "income" | "expense" | "refund" etc. (optional)
-)

@@ -3,42 +3,39 @@ package com.vivekray898.payalert.services
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.util.Log
+import com.vivekray898.payalert.AppGraph
+import com.vivekray898.payalert.reminders.ReminderScheduler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
- * BootReceiver — re-arms all background services when the device boots.
- *
- * Responsibilities:
- *   1. On BOOT_COMPLETED, start the Foreground Service (PaymentMonitorService)
- *   2. Ensure the NotificationListenerService is re-registered
- *   3. Log the boot event for diagnostics
- *
- * Permissions required:
- *   - RECEIVE_BOOT_COMPLETED (manifest)
- *   - On Android 11+, the NotificationListenerService must be re-enabled by the
- *     user if the device was powered off with access granted (Android preserves the
- *     permission across reboots, but the service must explicitly restart).
- *
- * Design observations (from reference APK analysis):
- *   - The reference APK has 3 boot-related receivers: BootReceiver, ServiceRestartReceiver,
- *     and TtsBackupReceiver. We implement BootReceiver as the primary re-arter;
- *     ServiceRestartReceiver is deferred to a later phase.
+ * Restores background monitoring after a reboot or an app update, but only when the
+ * user has left monitoring enabled. Pending payment reminders are re-armed too, because
+ * alarms do not survive a reboot.
  */
 class BootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == "android.intent.action.BOOT_COMPLETED") {
-            Log.i("PayAlert", "Boot completed — re-arming background services")
+        when (intent.action) {
+            Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED -> {
+                val graph = AppGraph.get(context)
+                if (graph.settings.state.value.monitoringEnabled) {
+                    PaymentMonitorService.start(context)
+                }
 
-            // Start the foreground service that drives payment monitoring + TTS
-            val serviceIntent = Intent(context, ::class.java.javaClass)
-            // We target the specific service; Android will respect the manifest declaration.
-            // The service must have FOREGROUND_SERVICE + FOREGROUND_SERVICE_SPECIAL_USE.
-            context.startForegroundService(serviceIntent)
-
-            // Log that boot occurred; in a full implementation the ViewModel would
-            // update a "lastBoot" timestamp stored in Room/SharedPreferences.
-            Log.d("PayAlertBoot", "BootReceiver triggered; service restart requested")
+                val pendingResult = goAsync()
+                val appContext = context.applicationContext
+                CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                    try {
+                        val due = graph.database.upcomingPaymentDao().pending()
+                        ReminderScheduler.scheduleAll(appContext, due)
+                    } finally {
+                        pendingResult.finish()
+                    }
+                }
+            }
         }
     }
 }

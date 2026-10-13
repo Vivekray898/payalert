@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "defaultCurrency": "INR",
+  "coordinator": {
+    "dedupWindowMinutes": 5,
+    "amountBucketMinutes": 5,
+    "staleGraceHours": 48
+  },
+  "patterns": {
+    "amount": [
+      "(?i)(?:rs\\.?|inr|\\u20b9)\\s*([0-9][0-9,]*(?:\\.[0-9]{1,2})?)",
+      "(?i)(?:amount|amt)\\.?\\s*(?:of|:)?\\s*(?:rs\\.?|inr|\\u20b9)?\\s*([0-9][0-9,]*(?:\\.[0-9]{1,2})?)",
+      "(?i)([0-9][0-9,]*\\.[0-9]{2})\\s*(?:rs\\b|inr\\b)"
+    ],
+    "reference": [
+      "(?i)(?:utr|rrn|upi\\s*ref|ref(?:erence)?\\s*(?:no\\.?|number|id)?|txn\\s*id|transaction\\s*id)\\s*[:#]?\\s*([A-Za-z0-9]{6,22})",
+      "\\b([0-9]{12})\\b",
+      "\\b([A-Z]{4}[0-9]{6,12})\\b"
+    ],
+    "account": [
+      "\\b([xX*\\u2022]{2,}\\s?[0-9]{3,4})\\b",
+      "(?i)(?:a/?c|acct|account|card)\\s*(?:no\\.?|number|ending|xx+)?\\s*[:#]?\\s*([0-9]{3,4})\\b"
+    ],
+    "balance": [
+      "(?i)(?:avl\\.?\\s*bal|available\\s*bal(?:ance)?|bal(?:ance)?|updated\\s*balance)\\s*[:.=]?\\s*(?:rs\\.?|inr|\\u20b9)?\\s*([0-9][0-9,]*(?:\\.[0-9]{1,2})?)"
+    ]
+  },
+  "skip": {
+    "otp": ["otp", "one time password", "one-time password", "verification code", "do not share", "never share", "valid for next"],
+    "dueReminder": ["is due", "due on", "due date", "emi of", "emi is", "minimum amount due", "payment due", "will be debited", "will be deducted", "is scheduled", "overdue", "kindly pay", "please pay"],
+    "promo": ["offer", "discount", "pre-approved", "pre approved", "apply now", "avail", "congratulations", "you have won", "click the link", "click here", "limited period", "t&c apply", "get up to"],
+    "delivery": ["out for delivery", "is delivered", "has been delivered", "shipped", "dispatched", "will be delivered"],
+    "request": ["has requested", "collect request", "has requested money", "payment request", "requesting you to pay"],
+    "declined": ["declined", "payment failed", "has failed", "unsuccessful", "insufficient", "cannot be processed", "not processed", "transaction failed"]
+  },
+  "direction": {
+    "debit": ["debited", "debit", "withdrawn", "withdrawal", "spent", "paid", "sent", "deducted", "purchase", "transferred", "charged", "txn"],
+    "credit": ["credited", "credit", "received", "deposited", "refund", "cashback", "reversed", "added", "money received"],
+    "debitWins": ["debited", "debit", "spent", "withdrawn", "deducted"]
+  },
+  "merchant": {
+    "credit": [
+      "(?i)\\bfrom\\s+(.{2,40}?)\\s*(?:\\.|,|;|\\bon\\b|\\bat\\b|\\bref\\b|\\butr\\b|\\bupi\\b|\\bbal\\b|$)",
+      "(?i)\\bby\\s+(.{2,40}?)\\s*(?:\\.|,|;|\\bon\\b|\\bat\\b|\\bref\\b|$)",
+      "(?i)\\bat\\s+(.{2,40}?)\\s*(?:\\.|,|;|\\bon\\b|\\bref\\b|$)"
+    ],
+    "debit": [
+      "(?i)\\bto\\s+(.{2,40}?)\\s*(?:\\.|,|;|\\bon\\b|\\bat\\b|\\bref\\b|\\butr\\b|\\bupi\\b|\\bbal\\b|\\bfrom\\b|\\bvia\\b|\\busing\\b|\\ba/?c\\b|$)",
+      "(?i)\\bat\\s+(.{2,40}?)\\s*(?:\\.|,|;|\\bon\\b|\\bref\\b|\\bfrom\\b|\\bvia\\b|$)",
+      "(?i)\\bfor\\s+(.{2,40}?)\\s*(?:\\.|,|;|\\bon\\b|\\bref\\b|\\bfrom\\b|$)",
+      "(?i)\\btowards\\s+(.{2,40}?)\\s*(?:\\.|,|;|\\bon\\b|\\bref\\b|\\bfrom\\b|$)"
+    ],
+    "stopWords": ["your", "a/c", "ac", "account", "the", "this", "a", "an", "your account", "your a/c", "bank", "bank account", "unknown", "rs", "inr", "upi"],
+    "upiNarration": "(?i)\\bUPI/([^/\\s]{2,30})(?:/[^/\\s]{2,30}){0,2}",
+    "vpa": "(?i)\\b([a-z0-9._-]{2,30}@[a-z]{2,15})\\b",
+    "upiHandlesToIgnore": ["PAYTM", "PHONEPE", "GPAY", "OKAXIS", "OKHDFCBANK", "OKICICI", "OKSBI", "YOBL", "IBL", "AXL", "APL"]
+  },
+  "currency": {
+    "INR": ["rs.", "rs ", "inr", "\u20b9", "rupee"],
+    "USD": ["usd", "$", "dollar"],
+    "AED": ["aed", "dhs", "dirham"],
+    "EUR": ["eur", "\u20ac"],
+    "GBP": ["gbp", "\u00a3"],
+    "SGD": ["sgd", "s$"]
+  },
+  "banks": [
+    { "id": "hdfc", "name": "HDFC Bank", "senders": ["HDFC", "HDFCBK", "HDFCCC", "HDFCBN"], "keywords": ["hdfc bank"] },
+    { "id": "icici", "name": "ICICI Bank", "senders": ["ICICI", "ICICIB", "ICICIC"], "keywords": ["icici bank"] },
+    { "id": "sbi", "name": "SBI", "senders": ["SBI", "SBIN", "SBIINB", "ATMSBI", "CBSSBI"], "keywords": ["state bank of india", "sbi"] },
+    { "id": "axis", "name": "Axis Bank", "senders": ["AXIS", "AXISBK", "UTIB"], "keywords": ["axis bank"] },
+    { "id": "kotak", "name": "Kotak Bank", "senders": ["KOTAK", "KKBK", "KOTAKB"], "keywords": ["kotak"] },
+    { "id": "pnb", "name": "PNB", "senders": ["PNB", "PUNB"], "keywords": ["punjab national bank"] },
+    { "id": "bob", "name": "Bank of Baroda", "senders": ["BOB", "BARB", "BOBANK"], "keywords": ["bank of baroda"] },
+    { "id": "boi", "name": "Bank of India", "senders": ["BOI", "BKID"], "keywords": ["bank of india"] },
+    { "id": "bom", "name": "Bank of Maharashtra", "senders": ["BOM", "MAHB"], "keywords": ["bank of maharashtra"] },
+    { "id": "canara", "name": "Canara Bank", "senders": ["CANARA", "CNRB", "CANBNK"], "keywords": ["canara bank"] },
+    { "id": "centralbank", "name": "Central Bank", "senders": ["CENTRAL", "CBIN"], "keywords": ["central bank of india"] },
+    { "id": "union", "name": "Union Bank", "senders": ["UNION", "UBIN", "UNIONB"], "keywords": ["union bank"] },
+    { "id": "idbi", "name": "IDBI", "senders": ["IDBI", "IBKL"], "keywords": ["idbi"] },
+    { "id": "indusind", "name": "IndusInd", "senders": ["INDUS", "INDB"], "keywords": ["indusind"] },
+    { "id": "yesbank", "name": "Yes Bank", "senders": ["YES", "YESB", "YESBNK"], "keywords": ["yes bank"] },
+    { "id": "federal", "name": "Federal Bank", "senders": ["FEDERAL", "FDRL"], "keywords": ["federal bank"] },
+    { "id": "idfcfirst", "name": "IDFC First", "senders": ["IDFC", "IDFB", "IDFCFB"], "keywords": ["idfc first"] },
+    { "id": "indianbank", "name": "Indian Bank", "senders": ["INDIANB", "IDIB"], "keywords": ["indian bank"] },
+    { "id": "iob", "name": "IOB", "senders": ["IOB", "IOBA"], "keywords": ["indian overseas bank"] },
+    { "id": "uco", "name": "UCO Bank", "senders": ["UCO", "UCBA"], "keywords": ["uco bank"] },
+    { "id": "rbl", "name": "RBL", "senders": ["RBL", "RATN"], "keywords": ["rbl bank"] },
+    { "id": "psb", "name": "Punjab & Sind", "senders": ["PSB", "PSIB"], "keywords": ["punjab and sind"] },
+    { "id": "southindian", "name": "South Indian Bank", "senders": ["SIB", "SIBL"], "keywords": ["south indian bank"] },
+    { "id": "csb", "name": "CSB Bank", "senders": ["CSB", "CSBK"], "keywords": ["csb bank"] },
+    { "id": "ausfb", "name": "AU Small Finance Bank", "senders": ["AUSFB", "AUBANK", "AUSMALL"], "keywords": ["au small finance"] },
+    { "id": "airtel", "name": "Airtel Payments Bank", "senders": ["AIRTEL", "AIRTELB", "AIRTELP", "APBL"], "keywords": ["airtel payments"] },
+    { "id": "jiopb", "name": "Jio Payments Bank", "senders": ["JIOPB", "JIOPB", "JIOPAY"], "keywords": ["jio payments"] },
+    { "id": "indiapost", "name": "India Post Payments Bank", "senders": ["IPPB", "IPOSB", "IPPBBK"], "keywords": ["india post payments"] },
+    { "id": "nsdlpb", "name": "NSDL Payments Bank", "senders": ["NSDLPB", "NSDL"], "keywords": ["nsdl payments"] },
+    { "id": "fimoney", "name": "Fi Money", "senders": ["FIMONEY", "FIBNK"], "keywords": ["fi money"] },
+    { "id": "jupiter", "name": "Jupiter", "senders": ["JUPITER", "JUPITR"], "keywords": ["jupiter money"] },
+    { "id": "slice", "name": "Slice", "senders": ["SLICE"], "keywords": ["slice"] },
+    { "id": "onecard", "name": "OneCard", "senders": ["ONECARD", "ONECRD"], "keywords": ["onecard"] },
+    { "id": "bajajfin", "name": "Bajaj Finance", "senders": ["BAJAJF", "BAJAJ"], "keywords": ["bajaj finance"] },
+    { "id": "bajajhousing", "name": "Bajaj Housing Finance", "senders": ["BAJAJH", "BHFL"], "keywords": ["bajaj housing"] },
+    { "id": "bandhan", "name": "Bandhan", "senders": ["BANDHAN", "BDBL"], "keywords": ["bandhan bank"] },
+    { "id": "equtas", "name": "Equitas SFB", "senders": ["EQUTAS", "ESFB"], "keywords": ["equitas"] },
+    { "id": "kagb", "name": "Karnataka Grameena Bank", "senders": ["KAGB"], "keywords": ["karnataka grameena"] },
+    { "id": "apgb", "name": "AP Grameena Bank", "senders": ["APGB"], "keywords": ["andhra pragathi", "ap grameena"] },
+    { "id": "nkgsb", "name": "NKGSB Co-op Bank", "senders": ["NKGSB"], "keywords": ["nkgsb"] },
+    { "id": "snspat", "name": "Shree Nagari Sahakari Patsanstha", "senders": ["SNSPAT"], "keywords": ["shree nagari"] },
+    { "id": "generic", "name": "Bank", "senders": [], "keywords": [], "catchAll": true }
+  ],
+  "wallets": [
+    { "id": "phonepe", "name": "PhonePe", "packages": ["com.phonepe.app"], "keywords": ["phonepe"] },
+    { "id": "gpay", "name": "Google Pay", "packages": ["com.google.android.apps.nbu.paisa.user"], "keywords": ["google pay", "gpay"] },
+    { "id": "paytm", "name": "Paytm", "packages": ["net.one97.paytm"], "keywords": ["paytm"] },
+    { "id": "amazonpay", "name": "Amazon Pay", "packages": ["in.amazon.mShop.android.shopping"], "keywords": ["amazon pay"] },
+    { "id": "bhim", "name": "BHIM", "packages": ["in.org.npci.upiapp", "com.npci.bhim"], "keywords": ["bhim"] }
+  ]
+}

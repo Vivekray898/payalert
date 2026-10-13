@@ -1,86 +1,177 @@
-# PayAlert vs Auto Alert v2.4.5 Feature Matrix
+# PayAlert — Feature Parity Matrix (evidence-based)
 
-**Reference APK:** `Auto Alert v2.4.5` — `com.binaryscript.payalert` (SHA-256: `f285aea9…82241`)
-**Target app:** `PayAlert` — `com.vivekray898.payalert`
+**Reference:** `Auto Alert v2.4.5` — package `com.binaryscript.payalert`, versionCode 315,
+minSdk 24, targetSdk 36 (read from `.apk_extract/manifest.xml` and the DEX symbol tables).
+**Target:** `PayAlert` — package `com.vivekray898.payalert`.
+**Monetization:** none. Every feature below is free; there are no paywalls, trials or licence checks.
 
-| # | Feature | Reference APK Status | PayAlert Implementation | Gap | Notes |
+> **Correction notice.** An earlier revision of this file claimed many features were "Done"
+> that did not exist in the repository (no `MainActivity`, no `res/`, no `app/build.gradle.kts`,
+> and every Kotlin file failed to compile). Those claims are withdrawn. Statuses below are
+> limited to what was actually inspected, compiled, unit-tested, or executed on a device.
+
+## Status vocabulary
+
+| Status | Meaning |
+|---|---|
+| `implemented and verified` | Real code, compiled, and exercised by an automated test or a runtime check |
+| `implemented but unverified` | Real code that compiles and is reachable, but has not been executed |
+| `partial` | Some real behaviour, with a named gap |
+| `missing` | No implementation |
+| `not applicable` | Cannot exist on Android, or deliberately excluded |
+
+## How each status was established
+
+- **source-inspected** — the reference artefact was read (extracted manifest, resources, DEX symbols).
+- **compiled** — `./gradlew clean :app:assembleDebug` succeeded (12,506,521-byte debug APK produced).
+- **unit-tested** — `./gradlew :app:testDebugUnitTest` ran **74 tests, 0 failures, 0 errors**
+  (11 suites; the launch-time health check and the rating prompt added 14 of them).
+- **schema-verified** — Room's KSP processor validates every `@Query` SQL string at compile time;
+  an unknown column or invalid SQL fails the build. Every DAO query compiled.
+- **manifest-verified** — component declarations read back out of the *built* APK with `aapt2`.
+- **runtime** — driven on a Pixel 8 Pro AVD, Android 14 (API 34), with the real debug APK
+  installed; the exact commands and output are recorded in `BUILD_AND_VERIFICATION.md`.
+
+---
+
+## 1. Detection
+
+| # | Feature | Reference evidence (APK) | PayAlert status | Evidence | Gap |
 |---|---|---|---|---|---|
-| 1 | **SMS payment detection** | Confirmed (primary path) | ✅ `SmsReceiver` + `ParserRegistry` — SMS read + parser invoked | Minimal — SMS Reader needs `READ_SMS` + Android 11+ settings grant; functional flow wired | APK uses SMS as secondary path; primary = notification listener |
-| 2 | **Notification listener detection** | Confirmed (primary path) | ⚠️ Not yet implemented | Major — `NotificationListenerService` not wired; no `onListenStateChanged` UI feedback | APK's primary detection path |
-| 3 | **Bank SMS parsing** | Confirmed (static) | ✅ `ParserRegistry` with 4 hardcoded parsers (generic credit, HDFC-like, UPI intent, generic debit); rules in `res/raw/parsers.json` planned (not yet created) | Parser JSON not created; 4 fallbacks functional; independent (not copied) | HDFC pattern partially read from `parser_config.json`; implemented independently |
-| 4 | **Payment announcement via TTS** | Confirmed (static) | ✅ `TtsEngine` — TextToSpeech wrapper with speed/pitch/volume/language config; announcements from `MainViewModel` | — | Functional; settings UI not yet built |
-| 5 | **Language/voice/speed/volume settings** | Confirmed (static) — 9 locales (bn, gu, hi, kn, ml, mr, pa, ta, te) | ⚠️ Language spinner planned; no UI yet | Settings screen not built | Reference ships 9 locale strings in manifest |
-| 6 | **Foreground service + boot recovery** | Confirmed (static) | ⚠️ `PaymentMonitorService` declared in manifest; `BootReceiver` not yet wired; `ServiceRestartReceiver` not wired | Boot recovery not functional | APK has 3 boot receivers; we have 0 |
-| 7 | **SMS fallback for missed notifications** | Confirmed (static) | ⚠️ `SmsCreditFallbackService` concept referenced; not implemented | Service not built | APK's third detection layer |
-| 8 | **Transaction history** | Inferred | ✅ `PaymentEvent` Room entity + `PaymentEventDao` + `getRecent()` | — | Lists recent unsynced synced events; TransactionsScreen not yet built |
-| 9 | **Transaction analytics** | Inferred | ❌ Not implemented | `TransactionAnalyticsActivity` equivalent missing | Data model has category field; analytics UI pending |
-| 10 | **Cashbook / passbook entries** | Inferred | ✅ `cashbook_entries` Room table + `AddEditCashBookEntryActivity` concept | `AddEditCashBookEntryDialog` not built | Dialog exists in concept; UI pending |
-| 11 | **Add/edit cashbook entries** | Inferred | ❌ Not implemented | Form + validation + Room insert pending | `AddEditCashBookEntryDialog` pending |
-| 12 | **Upcoming payments / reminders** | Inferred | ❌ Not implemented | `UpcomingPaymentsActivity` equivalent missing | Referenced in APK; deferred |
-| 13 | **QR scanning / workflows** | Inferred | ❌ Not implemented | `QRScannerActivity` equivalent missing | `com.journeyapps:barcodeScanner` dependency commented out; camera permission present in manifest; defer or implement minimal "paste UPI" screen |
-| 14 | **Home-screen widget + config** | Inferred | ❌ Not implemented | `WidgetConfigActivity` + `UpiQrWidgetReceiver` equivalent missing | APK has widget components; we have none |
-| 15 | **FAQ screen** | Inferred | ❌ Not implemented | `FaqsActivity` equivalent missing | Simple static text UI pending |
-| 16 | **Settings (general)** | Confirmed (static) | ⚠️ `TtsSettingsActivity` concept; Settings screen skeleton not built | Main Settings UI pending | Reference has TTS + language + many prefs |
-| 17 | **Team / device management** | Inferred | ❌ Not implemented | `team.TeamActivity` equivalent missing | `owner_employees` table in Supabase schema; UI pending |
-| 17b | **Owner→employee pairing** | Inferred | ❌ Not implemented | Pairing code flow + RLS policies pending | APK references sync ops in MainActivity inner classes |
-| 18 | **Referrals** | Inferred | ❌ Not implemented | `ReferralActivity` equivalent missing | Referral code UI pending; Supabase Analytics free |
-| 19 | **Payment announcements via notification fallback** | Confirmed (static) | ❌ Not implemented | Notification fallback service pending | APK subtype says "when normal announcement was interrupted" |
-| 20 | **Account/profile management, Google sign-in** | Confirmed (static) | ⚠️ Supabase Google OAuth scaffold present (ViewModel, schema, .env.example); **no real integration yet** | Full OAuth flow not functional | `SignInViewModel` planned; need Supabase project + Google Cloud config |
-| 21 | **Sign-out** | Confirmed (static) | ❌ Not implemented | `revokeButton` / `signOut` action pending | — |
-| 22 | **Subscription / manage-subscription** | Inferred | ❌ Not implemented | `SubscriptionScreen` + `ManageSubscriptionScreen` pending | APK has `SubscriptionActivityNew` + `ManageSubscriptionActivity` + Razorpay + Play Billing; we implement own entitlement config via `subscription_plans` + `user_subscriptions` (no Razorpay/Play Billing in Phase 1) |
-| 23 | **All other utility screens** (MoreApps, WebView, FAQ, etc.) | Inferred | ❌ Not implemented | Equivalent screens pending | Component names present in APK; UI pending |
-| 23 | **Firebase-style notifications (FCM)** | Confirmed (static) | ❌ Not implemented | FCM / Realtime sync pending | `AutoAlertFirebaseMessagingService` declared; we have Supabase Realtime placeholder |
-| 24 | **Owner-to-employee device pairing** | Inferred | ❌ Not implemented | Pairing UI + RLS policies pending | `owner_employees` table in schema; code not wired |
-| 25 | **Diagnostics screen** | Unknown (we build it) | ✅ `DiagnosticsScreen.kt` — reads notification policy, SMS state, FGS status, last SMS/parsed event, parser result, sync status; toggle controls | — | Built per requirements; reads system state via ActivityManager/Permission APIs |
-| 25 | **Keyword check / pipeline test** | Inferred | ❌ Not implemented | `KeywordCheckActivity` + `PipelineTestActivity` equivalents missing | APK has these as internal test surfaces; we skip (not required) |
+| 1.1 | Notification-listener detection | `services.notifications.PaymentNotificationListenerService` in DEX | `implemented and verified` | **Runtime:** listener bound and live (`dumpsys notification`), a posted notification parsed and stored with `source=notification`, `sourceDetail=com.android.shell`, bank inferred as `PhonePe` | — |
+| 1.2 | Bank SMS detection | `SmsBroadcastReceiver`, `services.passbook.BankSmsReceiver` | `implemented and verified` | **Runtime:** two real SMS deliveries produced `credit 5000.00 ACME STORE / XX1234 / HDFC Bank / sms` and `debit 2000.00 bigbasket@ybl` | — |
+| 1.3 | SMS-as-fallback for missed notifications | `services.passbook.SmsCreditFallbackService` (declared FGS subtype) | `implemented and verified` | Both detectors call the same `PaymentPipeline.handle`, so either alone announces; the reference's three separate services are collapsed into one pipeline | — |
+| 1.4 | Foreground monitor service | `services.PaymentMonitorService` | `implemented and verified` | **Runtime:** `isForeground=true foregroundId=1001 types=40000000` (special-use), channel `payalert_monitor`, `START_STICKY` | — |
+| 1.5 | Restart after reboot | `services.boot.BootReceiver` | `implemented and verified` | **Runtime (real `adb reboot`, app never launched afterwards):** `PaymentMonitorService` came back as a foreground service (`isForeground=true foregroundId=1001 types=40000000`) and the pending reminder alarm was re-armed for `2026-11-15 09:00` | — |
+| 1.6 | Restart on unlock | `services.boot.ServiceRestartReceiver` | `implemented but unverified` | The receiver is **registered with the system** for `USER_PRESENT` (`dumpsys package` shows `…/.services.ServiceRestartReceiver filter` under that action), and a genuine unlock was performed on the device (keyguard engaged, PIN accepted) | The *restart of a dead monitor* could not be exercised: the shell may not kill a foreground-service process (`am kill` refuses it, `kill -9` → `EPERM`, `am stop-service` denied) and `am force-stop` puts the package in the stopped state, which suppresses implicit broadcasts. See `BUILD_AND_VERIFICATION.md` §9.6 |
+| 1.7 | TTS backup service when throttled | `services.TtsBackupService` | `not applicable` | The engine is warmed by the foreground monitor; `speak()` queues the pending utterance until the engine reports ready | Single engine by design |
+| 1.8 | FCM push | `services.firebase.AutoAlertFirebaseMessagingService` | `not applicable` | — | Reference used push for its backend; PayAlert is local-first with no server |
+| 1.9 | Scheduled reminders | `SCHEDULE_EXACT_ALARM` in manifest | `implemented and verified` | **Runtime:** `dumpsys alarm` shows `*walarm*:…/.services.ReminderReceiver` `RTC_WAKEUP origWhen=2026-10-14 09:00:00` for a saved reminder | Uses `setAndAllowWhileIdle`, which survives doze without the exact-alarm permission; timing may be inexact |
+
+## 2. Parsing
+
+| # | Feature | Reference evidence | PayAlert status | Evidence | Gap |
+|---|---|---|---|---|---|
+| 2.1 | Rules shipped as data | `assets/parser_config.json` (92 KB) | `implemented and verified` | `assets/parser_config.json` loaded on device — Home and Diagnostics report **42 banks / 5 wallets / 95 sender ids**; `ParserConfigLoader` unit-tested by `ParserConfigTest` | Rule *schema* is PayAlert's own; coverage scope informed by the reference |
+| 2.2 | Typed rule engine | `com.binaryscript.parser.core` (82 classes) | `implemented and verified` | `ParserConfig` + `ParserRegistry` are fully config-driven (no bank literals in code); skip/direction/merchant/currency rules are typed data | No per-bank object hierarchy — rules are one shared engine plus data |
+| 2.3 | Credit parsing | `ParsedSms.Transaction` + `TransactionType` | `implemented and verified` | Unit-tested **and runtime**: HDFC-style credit from a real SMS *and* from a real notification (amount, `XX1234`, UTR, bank) | — |
+| 2.4 | Debit parsing | same | `implemented and verified` | **Runtime:** UPI debit SMS → `debit 150.00 zomato@ybl`; shell notification → `debit 250.00 swiggy@ybl PhonePe`; both stored | — |
+| 2.5 | Skip non-payments | `SkipReason` enum | `implemented and verified` | Unit-tested (OTP, EMI-due, balance-only, promo); **runtime:** a non-payment notification produced `no_match` and stored nothing | Marker lists are an extensible starting set |
+| 2.6 | Amount extraction | `CompiledPatterns.Amount` | `implemented and verified` | Unit-tested for `Rs`, `Rs.`, `INR`, thousands separators; runtime `Rs.5,000.00` → `5000.0` | — |
+| 2.7 | Reference/UTR extraction | `CompiledPatterns.Reference` | `implemented and verified` | Unit-tested labelled `UTR`/`Ref` plus bare 12-digit fallback; runtime `412345678901`, `998877665544` | — |
+| 2.8 | Account masking | `CompiledPatterns.Account` | `implemented and verified` | Runtime `XX1234` / `XX4321` extracted and stored; drives the account filter | — |
+| 2.9 | Merchant extraction | `CompiledPatterns.Merchant` | `implemented and verified` | Runtime `ACME STORE`, `zomato@ybl`, `swiggy@ybl`, `bigbasket@ybl`; stop-words, leading-label stripping, VPA and UPI-narration forms | No merchant-name dictionary |
+| 2.10 | Balance-update messages | `ParsedSms.BalanceUpdate` | `partial` | The quoted balance *on a payment* is extracted into the `balance` column (shown in transaction detail); a balance-**only** message is still skipped as `no_match` | No balance history / balance-change tracking |
+| 2.11 | Mandate / autopay parsing | `ParsedSms.MandateActivation`, `MandateRevocation`, `MandateInfo` | `missing` | Mandate messages are skipped as non-payments | Not modelled |
+| 2.12 | Bank-specific rules | `CompiledPatterns.HDFC` | `implemented and verified` | Bank table (senders + keywords + catch-all) is data; `HDFCBK` → HDFC Bank, `VK-ICICIB` → ICICI Bank observed at runtime | Not one hand-written rule set per bank |
+| 2.13 | Bank/app identification | inferred from sender id | `implemented and verified` | Runtime: `HDFC Bank`, `PhonePe`; unit-tested sender-prefix and package matching | — |
+| 2.14 | Currency detection (non-INR) | reference currency handling | `implemented but unverified` | Config-driven currency table with generated foreign-amount patterns; `detectCurrency` unit-tested | No foreign-currency alert was fed in |
+
+## 3. Duplicate prevention
+
+| # | Feature | Reference evidence | PayAlert status | Evidence | Gap |
+|---|---|---|---|---|---|
+| 3.1 | Suppress duplicates across detectors | log de-dup implied by `checkAndSyncNotificationLogsInBackground` | `implemented and verified` | `DedupKeyBuilder` + `dedup_index`; unit-tested, and **runtime:** notification then SMS of one payment → `duplicate`, one row | — |
+| 3.2 | Dedup survives restart | — | `implemented and verified` | **Runtime:** keys persisted in Room across process restarts/reinstalls; a repeated SMS was still suppressed afterwards | — |
+| 3.3 | Configurable dedup window | — | `implemented and verified` | Unit-tested window boundary (default 5 min); adjustable 1–30 min in Settings and applied by the pipeline | — |
+| 3.4 | Old key pruning | — | `implemented and verified` | **Runtime:** a row seeded with `seen_at = now − 10 days` was present before a payment was processed and **gone** afterwards, while a row from `now − 1 h` and the new key survived (`pruneBefore(now − 3 days)` runs after each accepted event) | — |
+
+## 4. Announcement
+
+| # | Feature | Reference evidence | PayAlert status | Evidence | Gap |
+|---|---|---|---|---|---|
+| 4.1 | Speak payments via TTS | `FOREGROUND_SERVICE_SPECIAL_USE` subtype mentions announcements | `implemented and verified` | **Runtime:** an accepted payment triggered `Synthesis request for locale eng-IND`; the Diagnostics screen also shows the exact sentence spoken | Audibility not assessed (headless emulator) |
+| 4.2 | Language selection | 10 language labels (verified with `aapt2 dump strings`: Bengali, English, Gujarati, Hindi, Kannada, Malayalam, Marathi, Punjabi, Tamil, Telugu) + `TtsSettingsActivity` | `implemented and verified` | **Runtime:** the persisted default `en-IN` was the locale the platform engine used; the picker offers the same 10 locales and speaks a confirmation on change | Native voice availability depends on the device |
+| 4.3 | Speech speed / pitch | `TtsSettingsActivity` | `implemented but unverified` | Sliders persist and are applied via `setSpeechRate`/`setPitch` | Not heard |
+| 4.4 | Volume | `TtsSettingsActivity` | `implemented but unverified` | Slider persists; applied via `KEY_PARAM_VOLUME` (TextToSpeech has no `setVolume`) | Not heard |
+| 4.5 | Custom announcement format | announcement customisation | `implemented and verified` | `AnnouncementFormatter` with `{amount} {merchant} {bank} {kind}`, per-direction templates with a live preview; 4 unit tests | — |
+| 4.6 | Custom announcement sounds | 11 audio files (verified with `unzip -l`: 6 MP3s in `assets/` — cashier_ka_ching, coin_recieved, gun_shot, service_bell_ring, spinning_coin, templebell — plus `res/raw/audio1..4.mp3` and `zxing_beep.ogg`) | `implemented but unverified` | A chime is **generated on-device** (`ToneGenerator`) rather than copying the reference's audio assets; selectable as *Chime then voice* / *Chime only* | Not listened to |
+| 4.7 | Per-direction announcement toggle | — | `implemented and verified` | **Runtime:** switching "Money received" off made the real pipeline return `kind_disabled` for a credit; switching it back on restored `accepted` | — |
+| 4.8 | Minimum-amount filter | — | `implemented and verified` | **Runtime, through the Settings field itself:** threshold `1000` → a `Rs.600` credit returned `below_minimum` and stored nothing; a `Rs.1500` credit in the same session was stored. Clearing the field to `0` and re-sending the ₹600 message then stored it — the same message, opposite outcome | Entry field was uneditable (re-seeded from settings on every keystroke); fixed in this pass |
+| 4.9 | Sound modes + vibration | `TtsSettingsActivity` | `implemented but unverified` | Four modes (voice only / chime then voice / chime only / silent) and a vibrate toggle, both honoured by `TtsEngine.announce` | Not listened to / felt |
+
+## 5. Data, history and cashbook
+
+| # | Feature | Reference evidence | PayAlert status | Evidence | Gap |
+|---|---|---|---|---|---|
+| 5.1 | Transaction history | `ui.transactions.TransactionsActivity` | `implemented and verified` | **Runtime:** every stored payment rendered with merchant, timestamp, source, account and signed amount | — |
+| 5.2 | Transaction detail | `TransactionsActivity` | `implemented and verified` | **Runtime:** tapping a row opened the detail dialog with amount + currency, bank/app, merchant, reference, account, balance, category, detector, source and raw message | — |
+| 5.3 | Search transactions | — | `implemented and verified` | **Runtime:** searching `zomato` reduced the list to `1 shown` with `Out: 150.00`; matches merchant, bank, reference and raw text in SQL | — |
+| 5.4 | Filter by direction | — | `implemented and verified` | **Runtime:** the `Out` chip produced `In: 0.00 / Out: 400.00 / 2 shown` | — |
+| 5.5 | Running totals | `TransactionAnalyticsActivity` | `implemented and verified` | **Runtime:** header totals follow the active filter | — |
+| 5.6 | Date-range filter on history | filter sheet in reference | `implemented and verified` | **Runtime:** `All time / 7 days / 30 days / This month` chips; range applied in SQL | Custom start/end picker not offered |
+| 5.7 | Account filter | — | `implemented and verified` | **Runtime:** account chips are derived from stored data (`Any account`, `XX1234`) | — |
+| 5.8 | Export history | export in reference | `implemented and verified` | **Runtime:** Export → CSV wrote `payalert-history.csv` (279 bytes) through the system share sheet; file content read back and matched the filter exactly; JSON offered too | — |
+| 5.9 | Cashbook create | `ui.cashbook.AddEditCashBookEntryActivity` | `implemented and verified` | **Runtime:** entry `Chai / 40 / Food` persisted to `cashbook_entries` (read back from Room); empty-form Save rejected with `Enter a label` | — |
+| 5.10 | Cashbook delete | same | `implemented and verified` | **Runtime (earlier pass):** Delete removed the row and the UI returned to the empty state | — |
+| 5.11 | Cashbook edit | same | `implemented and verified` | **Runtime:** Edit → changed `40` to `99` → Save. Room read back `1\|Chai\|debit\|99.0\|Food` with the id, label, category and date unchanged, and the UI showed `Balance: -99.00` | — |
+| 5.12 | Cashbook totals & balance | — | `implemented and verified` | **Runtime:** after insert `Out: 40.00 / Balance: -40.00`; after delete back to `0.00` | — |
+| 5.13 | Cashbook categories | category support in reference | `implemented and verified` | **Runtime:** the category chip `Food` appeared from stored data and filtered the list | — |
+| 5.14 | Cashbook date-range report | report screen in reference | `implemented and verified` | **Runtime:** the Report dialog showed `Money in 0.00 / Money out 40.00 / Net -40.00 / Entries 1` plus per-category `Food in 0.00 · out 40.00`; maths unit-tested (4 tests) | — |
+| 5.15 | Cashbook export | — | `implemented and verified` | **Runtime:** tapping the Cashbook **Export** button opened the system share sheet with `payalert-cashbook.csv`; the cached file contained `occurred_at,direction,amount,label,category,note` plus the **edited** row `2026-10-13 22:59,debit,99.00,Chai,Food,`; builder unit-tested | — |
+| 5.16 | Transaction analytics screen | `ui.analytics.TransactionAnalyticsActivity` | `implemented and verified` | **Runtime:** totals, category bars, top payees and daily in/out rendered from real data; range presets switch; summary CSV export | No chart library — proportional bars only |
+| 5.17 | Upcoming payments / passbook | `ui.passbook.UpcomingPaymentsActivity`, `PassbookSmsScanService` | `implemented and verified` | **Runtime:** a non-repeating reminder (`Electricity / 1500 / Bills`) was created with a live alarm; **Mark paid** set `is_paid=1` and the `dumpsys alarm` batch for the package dropped to zero. A monthly reminder (`Broadband / 799`, switch toggled in the dialog) scheduled `2026-10-15 09:00`; **Mark paid & repeat** moved `due_at` to `2026-11-15 09:00`, kept `is_paid=0` and moved the alarm to the same new date | — |
+| 5.18 | Backup & restore | backup/restore in reference | `implemented and verified` | **Runtime:** export wrote a 2,629-byte JSON (4 payments + 1 cashbook + 1 reminder) to Downloads via the system picker; after clearing, the same file restored 4 payments and correctly reported the 2 records already present as skipped | Settings/speech prefs deliberately excluded |
+
+## 6. Other reference features
+
+| # | Feature | Reference evidence | PayAlert status | Evidence | Gap |
+|---|---|---|---|---|---|
+| 6.1 | Notification access + SMS + battery permission handling | manifest permissions + `services.PermissionService` | `implemented and verified` | **Runtime:** Home, Settings and Diagnostics reported live system state. Both deep links were tapped: notification access opened `com.android.settings/.Settings$NotificationAccessSettingsActivity`; with the exemption revoked, the battery button opened `com.android.settings/.fuelgauge.RequestIgnoreBatteryOptimizations`, whose `Allow` re-added the package to the device-idle whitelist | — |
+| 6.2 | Diagnostics / pipeline test | `ui.KeywordCheckActivity`, `ui.PipelineTestActivity` | `implemented and verified` | **Runtime:** the on-screen "Run through pipeline" fed text through the real pipeline and reported `accepted`, parsed amount, direction, merchant, dedup key, rule set (`config-v1`) and the spoken sentence — and stored the row | — |
+| 6.3 | Payment QR code | `ui.scanner.QRScannerActivity` + barcode scanner | Generation `implemented and verified`; scanning `not applicable` | Generation: the UPI link **round-trips through zxing's decoder in a unit test**, the quiet zone is standards-compliant, and the code renders on device (720×720 image with the correct URI shown as text). Scanning: excluded by the project requirement, and a camera capture cannot be exercised on the headless AVD (its emulated camera cannot be pointed at a QR code), so no status could be supported by evidence | The payee can be typed, copied as a UPI link or opened in a UPI app instead — see §9.7 of `BUILD_AND_VERIFICATION.md` |
+| 6.4 | Home-screen widget | `widget.WidgetConfigActivity`, `widget.UpiQrWidgetReceiver` | `implemented and verified` | **Runtime:** placed on the launcher and rendering live content — `In 6,250.00 · Out 400.00 (this month)` and the latest payment; it refreshed itself after a new SMS arrived | No widget configuration activity |
+| 6.5 | FAQ screen | `ui.FaqsActivity` | `implemented and verified` | **Runtime:** Help & FAQ rendered six Q&A cards | — |
+| 6.6 | In-app terms / privacy | `ui.WebViewActivity` | `implemented and verified` | **Runtime:** a native Privacy & terms screen (no WebView needed) covers local data, permissions, no-subscription and no-affiliation | Rebuilt natively rather than as a WebView |
+| 6.7 | Team / device management | `ui.team.TeamActivity` | `partial` | The optional cloud schema still models users/devices/pairing; all RLS-scoped | No UI and no sync client — would require a backend, which contradicts local-first |
+| 6.8 | Referrals | `ui.referral.ReferralActivity` | `not applicable` | — | Growth feature tied to the reference's backend |
+| 6.9 | More-apps cross-promotion | `ui.apps.MoreAppsActivity` | `not applicable` | — | Deliberately excluded |
+| 6.10 | Google sign-in | Firebase Auth activities | `not applicable` | App is fully local; no account required | Cloud sync remains optional and unbuilt |
+| 6.11 | Subscription / manage subscription | `SubscriptionActivity`, `ManageSubscriptionActivity`, Razorpay, Play Billing, `pairip.licensecheck` | `not applicable` | Monetization grep sweep is clean for the app: the only hit is the word `purchase` as a **debit keyword** in the parser rules; the Terms screen states the policy | Removed by requirement |
+| 6.12 | Ads / attribution / Truecaller | AdMob, AdServices, install-referrer, Truecaller SDK | `not applicable` | No such dependency in `app/build.gradle.kts` | Deliberately excluded |
+| 6.13 | Splash screen | `ui.auth.SplashActivity` (launcher) | `not applicable` | `ui.MainActivity` is the launcher and paints immediately | No artificial delay screen |
+| 6.15 | Launch-time service health check | `MainActivity$startServiceHealthChecks`, `services.boot.ServiceHealthWorker` | `implemented and verified` | `ServiceHealthEvaluator` (8 unit tests) + `ServiceHealth.inspect/repair` run from `MainActivity.onStart`. **Runtime:** killing the app so the monitor was down produced the banner *"Detection repaired on launch: started payment monitor, re-bound notification listener, re-armed 1 reminder(s)"*; revoking notification access instead produced *"Detection needs attention: notification access"* with a working **Fix** deep link | Advisory checks (battery) are reported but never block |
+| 6.16 | Rating prompt (review-prompt equivalent) | no Play Core `ReviewManager` in the reference DEX; a local prompt is the equivalent behaviour | `implemented and verified` | `ReviewPromptPolicy` (6 unit tests) + a Compose dialog shown from `MainActivity`. **Runtime, all three outcomes:** *Later* → `prompt_count=1` and no re-prompt on relaunch; *Rate on Play* → `rated=true` and the store opened on the app's listing (`com.android.vending/…UnauthenticatedMainActivity`); *No thanks* → `dismissed=true` and permanently suppressed | Play Core's In-App Review flow was not added (needs Play Services on a Play-installed device); the store deep link is used instead |
+| 6.14 | Diagnostics for rule coverage | — | `implemented and verified` | **Runtime:** Diagnostics and Settings both report the live rule-set size (42 banks · 5 wallets · 95 sender ids) and flag an asset-load failure instead of hiding it | — |
+
+---
 
 ## Summary
 
-**Fully implemented (source code exists and compiles/links logically):**
-- #1 SMS receiver framework + parser registry (4 fallback parsers)
-- #8 Transaction history (Room DAO)
-- #24 Auth scaffolding (Supabase config, `.env.example`, schema, `PayAlertApplication`, `diModule`)
-- #25 DiagnosticsScreen (full UI with permission state reads)
-- ParserRegistry with independent rules (not copied from reference)
-- TtsEngine with persistent settings
+**Verified by automated test (74 tests, 0 failures):** parser rules (credit/debit/skip/amount/
+UTR/account/merchant/direction/currency), config loading, source inference, dedup keys and
+windowing, announcement formatting, analytics maths, cashbook report maths, CSV export shape,
+UPI link building, QR encode→decode round-trip, the launch-time service health evaluator and
+the rating-prompt policy.
 
-**Partially implemented (framework present, UI/logic pending):**
-- #2 Notification listener service (declared in manifest, not wired)
-- #6 Foreground service + boot recovery (service declared, receivers not wired)
-- #16 Settings UI (concept only; TTSSettings not built)
-- #19 Notification fallback service (not built)
-- #20-#21 Google Sign-in via Supabase (scaffold only, no real flow)
-- #22 Subscription entitlement UI (schema present; UI pending)
-- #23 Team/referral/referral UI (schema present; UI pending)
-- #QR scanner (library commented out; camera permission present)
+**Verified at runtime on Android 14 (API 34) with the real debug APK:** SMS detection,
+notification detection, cross-detector duplicate suppression, foreground monitor service, TTS
+synthesis, History (list, detail, search, direction/date/account filters, totals, CSV export),
+Analytics (range presets, category bars, top payees, daily in/out), Cashbook (create, edit,
+delete, export button, category filter, date range, report dialog), Upcoming payments (create,
+mark paid, monthly roll-forward, real alarms), reboot recovery, minimum-amount filtering,
+dedup pruning, Backup & restore (export, import, skip accounting), QR rendering, the
+home-screen widget (placed, live, self-refreshing), Help & FAQ, Privacy & terms, the system
+permission deep links, the launch-time health check, the rating prompt, Settings toggles
+affecting the pipeline, and the Diagnostics pipeline test. No crash occurred in any run.
 
-**Not started (no code):**
-- #3 Parser JSON rules file (`parsers.json`)
-- #4-#7 TTS settings UI, boot receivers, SMS fallback service
-- #9-#11 Cashbook, analytics UI
-- #12-#13 Upcoming payments, QR scanner
-- #14-#18 Widget, FAQ, team, referral UIs
-- #23 Payment parser JSON rules
+**Added in the last pass and verified at runtime:** reboot recovery (real `adb reboot`),
+Cashbook edit, Cashbook export button, reminder mark-paid and monthly roll-forward (Room plus
+`dumpsys alarm`), the minimum-amount filter (both directions, through the Settings field),
+dedup pruning (a seeded 10-day-old key removed by a live payment), the system-Settings deep
+links, the launch-time service health check and the rating prompt.
 
-## Key compliance notes
+**Implemented, compiled and manifest-verified, not yet executed:** unlock-triggered restart
+(the receiver is registered and a real unlock was performed, but a dead monitor could not be
+created without root/SELinux changes — the reason is recorded in §9.6 of the verification
+record), speech speed/pitch/volume audibility, and the chime and vibration cues.
 
-- **No parser rules copied from reference** — all 4 hardcoded parsers authored independently
-- **No Razorpay/Play Billing integration** — own `subscription_plans` + `user_subscriptions` entitlement config
-- **No Truecaller SDK** — `com.truecaller.permission.sdk.internal.read_account_state` permission present in manifest but not used
-- **No CHECK_LICENSE / pairip.licensecheck** — own Supabase-backed entitlements
-- **No adMob/AdServices** — AdMob permission present but not wired
-- **Camera permission present** for QR but library deferred
+**Partial:** balance-only message tracking (the balance *on* a payment is captured),
+team/pairing (schema only).
 
-## Next priority
+**Missing relative to the reference:** mandate/autopay parsing and the balance-change history.
 
-Implement the highest-impact missing functionality in order:
-1. Notification listener service + foreground service startup
-2. Full Google Sign-in via Supabase (real OAuth flow)
-3. Parser JSON rules file + expand parser coverage
-4. Settings UI (language, TTS, announcement format, dedup modes)
-5. TransactionsScreen + Cashbook UI
-6. Subscription entitlement UI
-7. Team/referral UI
-8. QR scanner (or minimal alternative)
+**Not applicable by requirement:** a camera-based QR scanner (generation is implemented and
+verified; capture cannot be exercised on the headless AVD).
 
-Each feature, when coded, must have real functionality — no placeholder buttons, fake data, or mock screens that do nothing.
+**Excluded by requirement:** all monetization, ads, attribution and third-party identity SDKs.

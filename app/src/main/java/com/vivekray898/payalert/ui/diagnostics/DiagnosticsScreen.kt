@@ -1,182 +1,157 @@
 package com.vivekray898.payalert.ui.diagnostics
 
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.font.TextStyle
-import com.vivekray898.payalert.R
-import com.vivekray898.payalert.data.model.PaymentEvent
-import com.vivekray898.payalert.parsers.ParsedEvent
-import com.vivekray898.payalert.tts.TtsEngine
-import kotlinx.coroutines.flow.collectLatest
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.vivekray898.payalert.ui.PermissionStatus
+import com.vivekray898.payalert.ui.components.OverlayHeader
+import com.vivekray898.payalert.ui.components.SectionCard
+import com.vivekray898.payalert.ui.components.ValueRow
+import com.vivekray898.payalert.ui.formatAmount
 
 @Composable
-fun DiagnosticsScreen(
-    // ViewModel state flows — injected by the host
-    events: List<PaymentEvent> = emptyList(),
-    isListening: Boolean = false,
-    lastParsed: ParsedEvent? = null,
-    announcementText: String? = null,
-    isAnnouncing: Boolean = false,
-    onToggleAnnouncements: (Boolean) -> Unit = { },
-    onRequestNotificationPermission: () -> Unit = { },
-    onRequestSmsPermission: () -> Unit = { },
-) {
-    var expanded by remember { mutableStateOf(false) }
+fun DiagnosticsScreen(onBack: () -> Unit, viewModel: DiagnosticsViewModel = viewModel()) {
+    val context = LocalContext.current
+    val lastOutcome by viewModel.lastOutcome.collectAsState()
+    val testOutcome by viewModel.testOutcome.collectAsState()
+    val listenerConnected by viewModel.listenerConnected.collectAsState()
+    val eventCount by viewModel.eventCount.collectAsState()
+    val dedupCount by viewModel.dedupCount.collectAsState()
+
+    var testText by remember {
+        mutableStateOf("Rs.1,250.00 credited to A/c XX4321 on 12-05-24 from ACME STORE. UTR 412345678901")
+    }
+    var testSource by remember { mutableStateOf("sms") }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        horizontalArrangement = Arrangement.Start
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        OverlayHeader("Diagnostics", onBack)
 
-        // --- Header ---
-        Text(
-            text = "PayAlert Diagnostics",
-            style = MaterialTheme.typography.h5,
-            modifier = Modifier.padding(bottom = 4.dp)
-        )
-
-        // --- Notification listener permission ---
-        Row(modifier = Modifier.fillMaxWidth()) {
-            Text(text = "Notification listener:", style = MaterialTheme.typography.body2)
-            Spacer(modifier = Modifier.width(4.dp))
-            OutlinedTextField(
-                value = if (isListening) "Granted" else "Denied",
-                readOnly = true,
-                onValueChange = { },
-                modifier = Modifier.weight(1f)
+        SectionCard(title = "Live status") {
+            ValueRow("Monitoring", "Enabled")
+            ValueRow("Notification listener", if (listenerConnected) "Connected" else "Not connected")
+            ValueRow(
+                "SMS permission",
+                if (PermissionStatus.hasReceiveSms(context)) "Granted" else "Not granted"
             )
-            IconButton(onClick = onRequestNotificationPermission) {
-                Icon(Icons.Default.LocationOn, contentDescription = "Request notification permission")
-            }
-        }
-
-        // --- SMS permission ---
-        Row(modifier = Modifier.fillMaxWidth()) {
-            Text(text = "SMS permission:", style = MaterialTheme.typography.body2)
-            Spacer(modifier = Modifier.width(4.dp))
-            OutlinedTextField(
-                value = if (isListening) "Granted" else "Denied",
-                readOnly = true,
-                modifier = Modifier.weight(1f)
+            ValueRow(
+                "Notification access",
+                if (PermissionStatus.hasNotificationAccess(context)) "Granted" else "Not granted"
             )
-            IconButton(onClick = onRequestSmsPermission) {
-                Icon(Icons.Default.Sms, contentDescription = "Request SMS permission")
-            }
-        }
-
-        // --- Foreground service state ---
-        Row(modifier = Modifier.fillMaxWidth()) {
-            Text(text = "Foreground service:", style = MaterialTheme.typography.body2)
-            Spacer(modifier = Modifier.width(4.dp))
-            OutlinedTextField(
-                value = if (isListening) "Running" else "Stopped",
-                readOnly = true,
-                modifier = Modifier.weight(1f)
+            ValueRow(
+                "Background allowed",
+                if (PermissionStatus.isIgnoringBatteryOptimizations(context)) "Yes" else "No"
             )
-        }
-
-        // --- Last SMS received ---
-        expandableSection(
-            title = "Last SMS received",
-            expanded = expanded
-        ) {
-            if (events.isEmpty()) {
-                Text("No SMS events yet.", style = MaterialTheme.typography.body2)
-            } else {
-                val last = events.last()
-                Column(modifier = Modifier.padding(top = 4.dp)) {
-                    Text("Sender: ${last.raw_sender ?: "unknown"}")
-                    Text("Body excerpt: ${ truncate(last.raw_body ?: "none", 80) }")
-                    Text("Kind: ${last.kind} | Amount: ${last.amount} ${last.currency}")
-                    Text("Received: ${last.received_at?.toString() ?: "N/A"}")
+            ValueRow("Stored payments", eventCount.toString())
+            ValueRow("Dedup keys", dedupCount.toString())
+            ValueRow(
+                "Rule set",
+                if (viewModel.ruleSetLoaded) {
+                    "${viewModel.bankCount} banks · ${viewModel.walletCount} wallets · " +
+                        "${viewModel.senderCount} sender ids"
+                } else {
+                    "asset failed to load"
                 }
-            }
+            )
         }
 
-        // --- Last parsed payment event ---
-        expandableSection(
-            title = "Last parsed payment",
-            expanded = expanded
-        ) {
-            if (lastParsed === null) {
-                Text("No payment parsed yet.", style = MaterialTheme.typography.body2)
+        SectionCard(title = "Last processed message") {
+            val outcome = lastOutcome
+            if (outcome == null) {
+                Text("Nothing processed yet.", style = MaterialTheme.typography.bodyMedium)
             } else {
-                Column(modifier = Modifier.padding(top = 4.dp)) {
-                    Text("Kind: ${lastParsed.kind}")
-                    Text("Amount: ${lastParsed.amount} ${lastParsed.currency ?: ""}")
-                    Text("Bank/UPI: ${lastParsed.bankOrUpi ?: "generic"}")
-                    Text("Merchant: ${lastParsed.merchant ?: "unknown"}")
-                    Text("Utr: ${lastParsed.utr ?: "none"}")
-                    Text("Category: ${lastParsed.category ?: "none"}")
-                }
+                ValueRow("Result", outcome.reason)
+                ValueRow("Source", outcome.source)
+                outcome.amount?.let { ValueRow("Amount", formatAmount(it)) }
+                outcome.dedupKey?.let { ValueRow("Dedup key", it) }
+                outcome.announcement?.let { ValueRow("Announcement", it) }
             }
         }
 
-        // --- TTS announcement state ---
-        expandableSection(
-            title = "TTS announcement",
-            expanded = expanded
-        ) {
-            Text("Currently speaking: ${if (isAnnouncing) "yes" else "no"}")
-            if (announcementText != null) {
-                Text("Last text: ${truncate(announcementText, 60)}", style = MaterialTheme.typography.body3)
-            }
-        }
-
-        // --- Action buttons ---
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spaceEvenly) {
-            OutlinedButton(
-                onClick = { onToggleAnnouncements(!isAnnouncing) },
-                expanded = true
-            ) {
-                Text(if (isAnnouncing) "Stop Announcements" else "Start Announcements")
-            }
-            OutlinedButton(
-                onClick = { onToggleAnnouncements(false) },
-                expanded = true
-            ) {
-                Text("Stop")
-            }
-        }
-    }
-}
-
-/** Helper: truncate a string to max chars with ellipsis. */
-private fun truncate(s: String, max: Int): String = if (s.length <= max) s else "${s.substring(0, max - 1)}…"
-
-/** Simple expandable section composable. */
-private fun expandableSection(
-    title: String,
-    expanded: Boolean,
-    content: @Composable () -> Unit
-) {
-    Column(modifier = Modifier.padding(bottom = 4.dp)) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { expanded = !expanded }
-                .pointerInput { } // debounce
-        ) {
+        SectionCard(title = "Run a test message") {
             Text(
-                text = title,
-                style = MaterialTheme.typography.subtitle1,
-                modifier = Modifier.weight(1f)
+                text = "Feed text through the real pipeline: it parses, deduplicates, stores and speaks.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary
             )
-            Icon(
-                imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                contentDescription = "Expand/collapse $title"
+            OutlinedTextField(
+                value = testText,
+                onValueChange = { testText = it },
+                label = { Text("Message text") },
+                modifier = Modifier.fillMaxWidth()
             )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = testSource == "sms",
+                    onClick = { testSource = "sms" },
+                    label = { Text("As SMS") }
+                )
+                FilterChip(
+                    selected = testSource == "notification",
+                    onClick = { testSource = "notification" },
+                    label = { Text("As notification") }
+                )
+            }
+            Button(
+                onClick = { viewModel.runTest(testText, testSource) },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Run through pipeline") }
+            Button(
+                onClick = { viewModel.speak(testText) },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Speak the raw text") }
+
+            val outcome = testOutcome
+            if (outcome != null) {
+                ValueRow("Result", outcome.reason)
+                outcome.amount?.let { ValueRow("Parsed amount", formatAmount(it)) }
+                outcome.kind?.let { ValueRow("Direction", it) }
+                outcome.merchant?.let { ValueRow("Merchant", it) }
+                outcome.dedupKey?.let { ValueRow("Dedup key", it) }
+                outcome.parserName?.let { ValueRow("Rule set", it) }
+                outcome.announcement?.let { ValueRow("Spoken", it) }
+            }
         }
-        if (expanded) {
-            content()
+
+        SectionCard(title = "Maintenance") {
+            Text(
+                text = "Clearing dedup keys lets the same payment be announced again — useful for testing.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary
+            )
+            Button(
+                onClick = { viewModel.clearEvents() },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Clear stored payments") }
+            Button(
+                onClick = { viewModel.clearDedup() },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Clear dedup keys") }
         }
     }
 }

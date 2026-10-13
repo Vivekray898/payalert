@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose draws the whole UI; the platform theme only needs to be a valid,
+         no-action-bar parent so no design-library dependency is required. -->
+    <style name="Theme.PayAlert" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@color/payalert_primary</item>
+        <item name="android:windowBackground">#FFF7F9FA</item>
+    </style>
+</resources>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PayAlert</string>
+    <string name="notification_listener_label">PayAlert payment listener</string>
+    <string name="monitor_channel_name">Payment monitor</string>
+    <string name="monitor_channel_description">Keeps payment detection running in the background</string>
+    <string name="monitor_notification_title">PayAlert is watching for payments</string>
+    <string name="monitor_notification_text">Notification and SMS payment detection is active</string>
+    <string name="reminder_channel_name">Payment reminders</string>
+    <string name="reminder_channel_description">Alerts for upcoming payments you have scheduled</string>
+    <string name="widget_title">PayAlert</string>
+    <string name="widget_description">Shows money in and out for this month</string>
+    <string name="widget_refresh">Refresh</string>
+    <string name="widget_open">Open</string>
+    <string name="widget_empty">No payments detected yet</string>
+    <string name="widget_totals">In %1$s · Out %2$s (this month)</string>
+</resources>
