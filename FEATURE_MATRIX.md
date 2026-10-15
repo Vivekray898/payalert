@@ -24,8 +24,9 @@ minSdk 24, targetSdk 36 (read from `.apk_extract/manifest.xml` and the DEX symbo
 
 - **source-inspected** — the reference artefact was read (extracted manifest, resources, DEX symbols).
 - **compiled** — `./gradlew clean :app:assembleDebug` succeeded (12,506,521-byte debug APK produced).
-- **unit-tested** — `./gradlew :app:testDebugUnitTest` ran **74 tests, 0 failures, 0 errors**
-  (11 suites; the launch-time health check and the rating prompt added 14 of them).
+- **unit-tested** — `./gradlew :app:testDebugUnitTest` ran **95 tests, 0 failures, 0 errors**
+  (12 suites; this pass added `PaymentPipelineTest` — sequential collapse, the concurrent
+  mutex proof with a control, both six-minute behaviours, and the prune cutoffs).
 - **schema-verified** — Room's KSP processor validates every `@Query` SQL string at compile time;
   an unknown column or invalid SQL fails the build. Every DAO query compiled.
 - **manifest-verified** — component declarations read back out of the *built* APK with `aapt2`.
@@ -70,11 +71,14 @@ minSdk 24, targetSdk 36 (read from `.apk_extract/manifest.xml` and the DEX symbo
 ## 3. Duplicate prevention
 
 | # | Feature | Reference evidence | PayAlert status | Evidence | Gap |
-|---|---|---|---|---|---|
-| 3.1 | Suppress duplicates across detectors | log de-dup implied by `checkAndSyncNotificationLogsInBackground` | `implemented and verified` | `DedupKeyBuilder` + `dedup_index`; unit-tested, and **runtime:** notification then SMS of one payment → `duplicate`, one row | — |
+|---|---|---|---|---|---|---|
+| 3.1a | Suppress duplicates: same detector, same source | log de-dup implied by `checkAndSyncNotificationLogsInBackground` | `implemented and verified` | `DedupKeyBuilder.exactKey` + `dedup_index`; unit-tested, and **runtime:** notification then SMS of one payment → `duplicate`, one row | — |
+| 3.1b | Suppress duplicates: cross-app semantic (UPI apps) | — | `implemented and verified` | **Runtime on the notification path** (the SMS path is 3.1a): three stub APKs posting as `com.phonepe.app` / `net.one97.paytm` / `com.google.android.apps.nbu.paisa.user` — three wordings of the same ₹500 credit to `zomato@ybl`, three different UTRs so only the semantic tier could collapse them — produced parser decisions `accepted / duplicate / duplicate`, **1 `payment_events` row**, 1 distinct semantic key, and 1 TTS utterance (raw commands and DB rows in `BUILD_AND_VERIFICATION.md` §10.6–10.7). Unit: `DedupKeyBuilderTest` semantic suite + `PaymentPipelineTest` Test A | The bucket is 5 minutes; a same-amount payment inside the bucket with a different reference is treated as the same payment |
 | 3.2 | Dedup survives restart | — | `implemented and verified` | **Runtime:** keys persisted in Room across process restarts/reinstalls; a repeated SMS was still suppressed afterwards | — |
 | 3.3 | Configurable dedup window | — | `implemented and verified` | Unit-tested window boundary (default 5 min); adjustable 1–30 min in Settings and applied by the pipeline | — |
-| 3.4 | Old key pruning | — | `implemented and verified` | **Runtime:** a row seeded with `seen_at = now − 10 days` was present before a payment was processed and **gone** afterwards, while a row from `now − 1 h` and the new key survived (`pruneBefore(now − 3 days)` runs after each accepted event) | — |
+| 3.4 | Old key pruning (exact keys, 3-day window) | — | `implemented and verified` | **Runtime:** a row seeded with `seen_at = now − 10 days` was present before a payment was processed and **gone** afterwards, while a row from `now − 1 h` and the new key survived (`pruneBefore(now − 3 days)` runs after each accepted event) | — |
+| 3.5 | Dedup check-and-insert serialization (Mutex) | — | `implemented and verified` | `PaymentPipeline` wraps the dedup check + insert in a `Mutex`, TTS outside the lock. **Unit:** `PaymentPipelineTest` Test B runs three `async(Dispatchers.Default)` handles of the same payment against a store with 100 ms checks and 50 ms writes and asserts exactly 1 `accepted` / 2 `duplicate` / 1 stored event / 1 announcement; a **control test** on the identical store with three separate (unshared-mutex) pipelines asserts 3 `accepted`, so the race window is proven real and the mutex is what closes it (`BUILD_AND_VERIFICATION.md` §10.3, XML `tests="6" failures="0"`). **Runtime:** the three-notification run (§10.6) exercised the same code path on-device | — |
+| 3.6 | Semantic key pruning (10-minute window) | — | `implemented and verified` | `pruneSemanticBefore(now − 10 min)` runs after each accepted event. **Unit:** `PaymentPipelineTest` Test D seeds a semantic row and an exact row at `now − 11 min`, runs a payment, and asserts the semantic row is pruned while the exact row survives. **Runtime:** the same seed was pushed into the device DB; after an accepted payment the semantic row was gone and the exact row survived (`BUILD_AND_VERIFICATION.md` §10.9). This check exposed and fixed a real bug: the old `semantic_key IS NOT NULL` predicate also deleted exact keys at 10 minutes, defeating their 3-day window (3.4) | — |
 
 ## 4. Announcement
 
@@ -138,14 +142,18 @@ minSdk 24, targetSdk 36 (read from `.apk_extract/manifest.xml` and the DEX symbo
 
 ## Summary
 
-**Verified by automated test (74 tests, 0 failures):** parser rules (credit/debit/skip/amount/
-UTR/account/merchant/direction/currency), config loading, source inference, dedup keys and
-windowing, announcement formatting, analytics maths, cashbook report maths, CSV export shape,
-UPI link building, QR encode→decode round-trip, the launch-time service health evaluator and
-the rating-prompt policy.
+**Verified by automated test (95 tests, 0 failures, read from this run's XMLs):** parser rules
+(credit/debit/skip/amount/UTR/account/merchant/direction/currency), config loading, source
+inference, dedup keys and windowing (including the concurrent-mutex proof and its control,
+and both prune cutoffs), announcement formatting, analytics maths, cashbook report maths, CSV
+export shape, UPI link building, QR encode→decode round-trip, the launch-time service health
+evaluator and the rating-prompt policy.
 
 **Verified at runtime on Android 14 (API 34) with the real debug APK:** SMS detection,
-notification detection, cross-detector duplicate suppression, foreground monitor service, TTS
+notification detection, cross-app semantic duplicate suppression **on the notification path**
+(three UPI-package stubs → 1 row, new-reference payment 8.5 min later → row 2, seeded prune
+check — `BUILD_AND_VERIFICATION.md` §10), cross-detector duplicate suppression, foreground
+monitor service, TTS
 synthesis, History (list, detail, search, direction/date/account filters, totals, CSV export),
 Analytics (range presets, category bars, top payees, daily in/out), Cashbook (create, edit,
 delete, export button, category filter, date range, report dialog), Upcoming payments (create,
@@ -175,3 +183,34 @@ team/pairing (schema only).
 verified; capture cannot be exercised on the headless AVD).
 
 **Excluded by requirement:** all monetization, ads, attribution and third-party identity SDKs.
+
+---
+
+## Added in this pass
+
+The notification-path verification (`BUILD_AND_VERIFICATION.md` §10): the `PaymentStore`
+seam that makes the pipeline unit-testable, `PaymentPipelineTest` (6 tests including the
+concurrent mutex proof and its control), the three UPI-identity stub APKs and
+`scripts/build-notif-stubs.sh`, the runtime three-notification / regression / seeded-prune
+runs, the TTS utterance log line, and the `pruneSemanticBefore` fix.
+
+**Verified this pass:** (each item with the command that proved it)
+
+| Item | Command |
+|---|---|
+| Build after the seam change | `./gradlew :app:assembleDebug` → `BUILD SUCCESSFUL`, exit 0 |
+| 95 unit tests, 0 failures (12 suites) | `./gradlew :app:testDebugUnitTest --rerun-tasks` + per-file XML counts |
+| Mutex serialises concurrent check-and-insert (Test B + control) | the two `async(Dispatchers.Default)` tests, XML `tests="6" failures="0"` |
+| Semantic collapse across three UPI package identities, notification path | 3 stub launches → logcat `accepted / duplicate / duplicate`, 1 `payment_events` row, 1 semantic key, 1 TTS utterance (§10.6–10.7) |
+| Six-minute regression, notification path | new-UTR stub 8.5 min later → `accepted`, 2 rows, buckets `…:5973572` vs `…:5973574` (§10.8) |
+| 10-minute semantic prune, seeded on device | seeded `now−11min` rows → semantic row gone, exact row survives (§10.9) |
+| Exact-key 3-day retention restored (prune bug fix) | same seeded run + Test D |
+
+**Unverified this pass:** (blocker named)
+
+| Item | Blocker |
+|---|---|
+| Unlock-triggered restart | no way to kill a foreground-service process and keep the package deliverable without root/SELinux changes (§9.6) |
+| Speech rate/pitch/volume, chime, vibration — audibility | headless emulator, nothing was listened to |
+| The reference app's own dedup constants | the reference exposes no readable 5-/10-minute values; PayAlert's constants are its own |
+| SMS path re-run | not re-executed this pass; §9.4.5 remains its standalone evidence and does not cover 3.1b |

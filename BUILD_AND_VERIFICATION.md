@@ -704,3 +704,320 @@ The decision, and why it is not a silent omission:
 If camera scanning is wanted later, it needs a CameraX (or Camera2) capture path plus zxing
 core for decoding — the decoder is already a dependency — and a test rig that can feed the
 camera a known QR image.
+
+---
+
+# 10. Cross-app semantic dedup — notification path
+
+This section exists because an earlier pass reported the three-notification case as verified
+while its evidence was an **SMS** test, its `scripts/verify-dedup.sh` could not spoof a
+posting package (`cmd notification post` usage is `post [flags] TAG TEXT` — the "package"
+argument lands in the notification *tag*), the script's third payload used the **debit**
+keyword "paid to" while the first two were credits (the semantic keys could never match),
+and `PaymentPipelineTest.kt` did not exist. Every claim below was re-established by running
+the commands and pasting their output.
+
+Two real defects were found and fixed while producing this evidence:
+
+1. **`DedupDao.pruneSemanticBefore` destroyed exact keys.** The old predicate
+   `WHERE semantic_key IS NOT NULL AND seen_at < :cutoff` also matched accepted-payment
+   rows (they carry their semantic key in the column), so the 10-minute prune deleted exact
+   keys that row 3.4 of `FEATURE_MATRIX.md` promises survive 3 days. Fixed to
+   `WHERE dedup_key = semantic_key AND seen_at < :cutoff`. Guarded by unit Test D and by
+   the on-device seeded-prune check below.
+2. **The pipeline could not be unit-tested** because `PaymentPipeline` took `PayAlertDatabase`
+   directly, and a JVM test cannot build an in-memory Room database without Robolectric
+   (not in this repo; no new dependency was added). Fixed by a narrow seam:
+   `pipeline/PaymentStore.kt` (7-method interface + `RoomPaymentStore` delegating to the
+   existing DAOs), wired in `AppGraph`. No behaviour change; the same DAO calls run.
+
+## 10.1 Build after the seam change
+
+```
+$ export JAVA_HOME=/Users/mamanjonpal/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home
+$ ./gradlew :app:assembleDebug
+> Task :app:mergeProjectDexDebug
+> Task :app:packageDebug
+> Task :app:createDebugApkListingFileRedirect UP-TO-DATE
+> Task :app:assembleDebug
+
+BUILD SUCCESSFUL in 5s
+37 actionable tasks: 5 executed, 32 up-to-date
+ASSEMBLE_EXIT=0
+```
+
+The Room processor re-validated every `@Query` (including the changed
+`pruneSemanticBefore` SQL) during this build.
+
+## 10.2 Unit tests — the real count, read from this run's XMLs
+
+```
+$ ./gradlew :app:testDebugUnitTest --rerun-tasks
+BUILD SUCCESSFUL in 8s
+TEST_EXIT=0
+
+$ for f in app/build/test-results/testDebugUnitTest/*.xml; do
+    echo "$(basename $f): $(grep -o 'tests="[0-9]*"' $f | head -1) …"
+  done
+TEST-…analytics.AnalyticsCalculatorTest.xml:             tests="7"  failures="0" errors="0"
+TEST-…cashbook.CashbookReportCalculatorTest.xml:         tests="4"  failures="0" errors="0"
+TEST-…export.TransactionExporterTest.xml:                tests="5"  failures="0" errors="0"
+TEST-…health.ReviewPromptPolicyTest.xml:                 tests="6"  failures="0" errors="0"
+TEST-…health.ServiceHealthEvaluatorTest.xml:             tests="8"  failures="0" errors="0"
+TEST-…parsers.DedupKeyBuilderTest.xml:                   tests="20" failures="0" errors="0"
+TEST-…parsers.ParserConfigTest.xml:                      tests="6"  failures="0" errors="0"
+TEST-…parsers.ParserRegistryTest.xml:                    tests="19" failures="0" errors="0"
+TEST-…pipeline.PaymentPipelineTest.xml (new):            tests="6"  failures="0" errors="0"
+TEST-…settings.AnnouncementFormatterTest.xml:            tests="4"  failures="0" errors="0"
+TEST-…upi.QrPayloadTest.xml:                             tests="4"  failures="0" errors="0"
+TEST-…upi.UpiLinkTest.xml:                               tests="6"  failures="0" errors="0"
+TOTAL: 95 tests, 0 failures, 0 errors
+```
+
+(The earlier "74 tests" figure was read from §9.2 of this file rather than from the run.
+The 20-test `DedupKeyBuilderTest` had already been on disk; the new `PaymentPipelineTest`
+brings the total to 95.)
+
+## 10.3 The concurrent mutex test — source and result
+
+`app/src/test/java/com/vivekray898/payalert/pipeline/PaymentPipelineTest.kt`, Test B:
+
+```kotlin
+@Test
+fun `Test B - three concurrent notifications produce exactly one accepted`() = runBlocking {
+    // Identical store latency to the control test below (100 ms checks, 50 ms
+    // writes). The only difference from the control is the shared pipeline mutex:
+    // the control triple-stores on this store, the mutex must not.
+    val store = FakePaymentStore(checkDelayMs = 100, insertDelayMs = 50)
+    val tts = CopyOnWriteArrayList<String>()
+    val pipeline = pipeline(store, tts)
+
+    val results = listOf(
+        async(Dispatchers.Default) { pipeline.handle(phonePeText, "notification", "com.phonepe.app", baseNow) },
+        async(Dispatchers.Default) { pipeline.handle(paytmText, "notification", "net.one97.paytm", baseNow + 200) },
+        async(Dispatchers.Default) { pipeline.handle(gpayText, "notification", "com.google.android.apps.nbu.paisa.user", baseNow + 400) }
+    ).awaitAll()
+
+    val reasons = results.map { it.reason }
+    assertEquals("expected exactly one accepted, got $reasons", 1, reasons.count { it == ParseOutcome.ACCEPTED })
+    assertEquals("expected exactly two duplicates, got $reasons", 2, reasons.count { it == ParseOutcome.DUPLICATE })
+    assertEquals("expected exactly one stored event", 1, store.eventCount())
+    assertEquals("expected exactly one announcement", 1, tts.size)
+}
+```
+
+It runs three real coroutines on `Dispatchers.Default` (multithreaded), awaits all three
+with `awaitAll`, and asserts exactly one `accepted`. The fake store's checks are slow
+(100 ms) and its writes slower (50 ms), which is the concurrency shape of a real Room
+store. Raw result line:
+
+```
+<testcase name="Test B - three concurrent notifications produce exactly one accepted"/>
+```
+
+(failures="0" on the file: `tests="6" failures="0" errors="0"`.)
+
+**The control test makes this non-vacuous.** The same three payloads, same store latencies,
+three *separate* pipelines (no shared mutex) produce **three** accepted — the race window is
+real and the mutex is what closes it:
+
+```
+<testcase name="control - without a shared mutex the race window produces three accepted"/>
+```
+
+While writing this fake, its first version locked every store call; the thread timeline
+then showed the queued checks ending in FIFO order and the first inserter always winning —
+a store that serialises its own reads cannot demonstrate a check-and-insert race at all.
+That timeline is why the final fake uses lock-free reads and a slow write.
+
+The other four tests in the file:
+
+```
+<testcase name="Test A - three apps three wordings one payment collapse sequentially"/>
+<testcase name="Test C - same payment six minutes later with a new reference is accepted"/>
+<testcase name="Test C2 - repeated reference stays a duplicate even after six minutes"/>
+<testcase name="Test D - semantic prune removes stale semantic row but keeps exact row"/>
+```
+
+`Test C` uses a new UTR for the second payment because the exact key is **timeless when a
+reference exists** (`utr:REF|kind|amount`, pinned by `DedupKeyBuilderTest`: "reference number
+dominates merchant and time"). `Test C2` pins that behaviour: the same reference six
+minutes later stays `duplicate`.
+
+## 10.4 The three UPI-identity stubs
+
+`cmd notification post` cannot spoof a posting package, so three minimal APKs post real
+notifications under the three UPI package identities. Built with SDK tools only
+(`aapt2` + `javac` + `d8` + `apksigner`), no Gradle module, no new Maven artifact:
+
+```
+$ ./scripts/build-notif-stubs.sh
+built stub-com_phonepe_app.apk for com.phonepe.app
+built stub-net_one97_paytm.apk for net.one97.paytm
+built stub-com_google_android_apps_nbu_paisa_user.apk for com.google.android.apps.nbu.paisa.user
+BUILD_STUBS_EXIT=0
+
+$ aapt2 dump badging stub-com_phonepe_app.apk | grep -E "^package|launchable"
+package: name='com.phonepe.app' …
+launchable-activity: name='stub.notifier.MainActivity' label='PhonePe'
+package: name='net.one97.paytm' …     launchable-activity: … label='Paytm'
+package: name='com.google.android.apps.nbu.paisa.user' … launchable-activity: … label='Google Pay'
+
+$ adb install -r stub-*.apk
+Success
+$ adb shell pm list packages | grep -E 'phonepe|paytm|paisa'
+package:com.phonepe.app
+package:net.one97.paytm
+package:com.google.android.apps.nbu.paisa.user
+```
+
+(The first install attempt failed with `INSTALL_FAILED_DEPRECATED_SDK_VERSION … found 0`;
+`--min-sdk-version 24 --target-sdk-version 34` was added to the `aapt2 link` invocation and
+the rebuild installed cleanly.)
+
+Each stub bakes one body text into its dex, all three describing the **same ₹500 credit to
+`zomato@ybl`**, with **three different UTRs** so only the semantic tier can collapse them:
+
+```
+Received Rs.500 from ZOMATO@ybl. UTR 111111111111                    (PhonePe)
+Rs.500 credited to your account from zomato@ybl. Ref 222222222222    (Paytm)
+You received ₹500 from Zomato. UPI Ref 333333333333                 (Google Pay)
+```
+
+## 10.5 Listener state
+
+```
+$ adb shell settings get secure enabled_notification_listeners
+com.vivekray898.payalert/com.vivekray898.payalert.services.PaymentNotificationListener:…
+
+$ adb shell dumpsys notification --noredact | grep -A6 'Live notification listeners'
+    Live notification listeners (8):
+      …
+      ComponentInfo{com.vivekray898.payalert/com.vivekray898.payalert.services.PaymentNotificationListener} (user 0): android.service.notification.INotificationListener$Stub$Proxy@632c1c2
+```
+
+## 10.6 Three notifications, three apps, one payment
+
+App data was cleared first (`pm clear`), then the listener was re-enabled and the app
+launched once. `pm clear` also reset the runtime permissions, so the app re-requested them
+on launch (visible in logcat as `GrantPermissionsViewModel … POST_NOTIFICATIONS …
+RECEIVE_SMS`); the three stubs had `POST_NOTIFICATIONS` granted via `pm grant`.
+
+```
+$ adb logcat -c
+$ adb shell am start -n com.phonepe.app/stub.notifier.MainActivity
+$ sleep 0.7
+$ adb shell am start -n net.one97.paytm/stub.notifier.MainActivity
+$ sleep 0.7
+$ adb shell am start -n com.google.android.apps.nbu.paisa.user/stub.notifier.MainActivity
+$ sleep 4
+$ adb logcat -d -s PayAlert:V
+10-15 19:13:02.351 D PayAlert: Notification from com.phonepe.app: PhonePe Received Rs.500 from ZOMATO@ybl. UTR 111111111111 Received Rs.500 from ZOMATO@ybl. UTR 111111111111
+10-15 19:13:02.386 I PayAlert: TTS utterance: Payment received. 500.00 from ZOMATO@ybl.
+10-15 19:13:02.389 I PayAlert: Notification pipeline result: accepted
+10-15 19:13:03.161 D PayAlert: Notification from net.one97.paytm: Paytm Rs.500 credited to your account from zomato@ybl. Ref 222222222222 Rs.500 credited to your account from zomato@ybl. Ref 222222222222
+10-15 19:13:03.166 I PayAlert: Notification pipeline result: duplicate
+10-15 19:13:03.885 D PayAlert: Notification from com.google.android.apps.nbu.paisa.user: Google Pay You received ₹500 from Zomato. UPI Ref 333333333333 You received ₹500 from Zomato. UPI Ref 333333333333
+10-15 19:13:03.891 I PayAlert: Notification pipeline result: duplicate
+```
+
+Parser decision per notification: **accepted / duplicate / duplicate**. Exactly **one**
+`TTS utterance:` line. The body text is doubled because the listener joins `EXTRA_TITLE`,
+`EXTRA_TEXT` and `EXTRA_BIG_TEXT`; the parser matches the first occurrence and the outcome
+is unaffected (the same doubled text appears in the unit tests' payloads).
+
+The first `am start` batch used `com.phonepe.app/.MainActivity`, which resolved to a
+component that does not exist (the manifest declares the full name `stub.notifier.MainActivity`
+because `--rename-manifest-package` rewrites the relative reference but not the compiled
+class); it posted nothing and produced no PayAlert log lines. The corrected component names
+above are what produced this evidence.
+
+## 10.7 Room rows after the three notifications
+
+The database was pulled with its WAL through `run-as` (the device ships no `sqlite3`) and
+opened locally:
+
+```
+$ adb shell run-as com.vivekray898.payalert cat databases/payalert.db     > /tmp/payalert_notif.db
+$ adb shell run-as com.vivekray898.payalert cat databases/payalert.db-wal > /tmp/payalert_notif.db-wal
+$ sqlite3 /tmp/payalert_notif.db "SELECT COUNT(*) FROM payment_events;"
+1
+$ sqlite3 /tmp/payalert_notif.db "SELECT id, kind, amount, currency, merchant, utr, source, source_detail, bank_or_upi FROM payment_events;"
+1|credit|500.0|INR|ZOMATO@ybl|111111111111|notification|com.phonepe.app|PhonePe
+$ sqlite3 /tmp/payalert_notif.db "SELECT dedup_key, semantic_key FROM dedup_index;"
+utr:111111111111|credit|500.00|txn:credit:500.00:INR:-:zomato:5973572
+txn:credit:500.00:INR:-:zomato:5973572|txn:credit:500.00:INR:-:zomato:5973572
+$ sqlite3 /tmp/payalert_notif.db "SELECT COUNT(DISTINCT semantic_key) FROM dedup_index;"
+1
+```
+
+**1 payment row, 2 dedup rows (the winner's exact key + one semantic row), 1 distinct
+semantic key, 1 TTS utterance.** All three notifications carried *different* exact keys
+(three UTRs), so the semantic tier is what collapsed them — that is the 3.1b claim, now
+exercised on the notification path with three genuine package identities.
+
+## 10.8 Six-minute regression on the notification path
+
+The stub was rebuilt with a different reference (`UTR=444444444444 ./scripts/build-notif-stubs.sh`),
+reinstalled, and posted 8.5 minutes after the first batch:
+
+```
+$ adb logcat -c
+$ adb shell am start -n com.phonepe.app/stub.notifier.MainActivity
+$ sleep 4
+$ adb logcat -d -s PayAlert:V
+10-15 19:21:33.061 D PayAlert: Notification from com.phonepe.app: PhonePe Received Rs.500 from ZOMATO@ybl. UTR 444444444444 …
+10-15 19:21:33.095 I PayAlert: TTS utterance: Payment received. 500.00 from ZOMATO@ybl.
+10-15 19:21:33.100 I PayAlert: Notification pipeline result: accepted
+
+$ sqlite3 /tmp/payalert_final.db "SELECT COUNT(*) FROM payment_events;"
+2
+$ sqlite3 /tmp/payalert_final.db "SELECT id, kind, amount, merchant, utr, source, source_detail FROM payment_events ORDER BY id;"
+1|credit|500.0|ZOMATO@ybl|111111111111|notification|com.phonepe.app
+2|credit|500.0|ZOMATO@ybl|444444444444|notification|com.phonepe.app
+```
+
+Two rows, two utterances. The semantic keys differ only by the 5-minute bucket
+(`…:zomato:5973572` vs `…:zomato:5973574`) — the bucket maths matched the real elapsed
+time, not a clock trick (the pipeline always uses `System.currentTimeMillis()`).
+
+## 10.9 Seeded prune check — the 10-minute semantic window on the device
+
+Before the regression payment, the app was stopped and two stale rows were seeded into
+`dedup_index` at `now − 11 minutes` (pulled → edited locally → pushed back through
+`/data/local/tmp` + `run-as cp`, which does not truncate):
+
+```
+txn:credit:777.00:INR:-:seededmerchant:99999 | seen_at=1792071468876   (semantic-only row)
+utr:999999999999|credit|777.00              | semantic_key=txn:credit:777.00:INR:-:seededmerchant:99999
+                                                     seen_at=1792071468876   (exact row carrying a semantic key)
+```
+
+The accepted regression payment then ran both prunes. Raw state afterwards:
+
+```
+$ sqlite3 /tmp/payalert_final.db "SELECT dedup_key, semantic_key, seen_at FROM dedup_index ORDER BY seen_at;"
+utr:999999999999|credit|777.00|txn:credit:777.00:INR:-:seededmerchant:99999|1792071468876
+utr:111111111111|credit|500.00|txn:credit:500.00:INR:-:zomato:5973572|1792071782353
+txn:credit:500.00:INR:-:zomato:5973572|txn:credit:500.00:INR:-:zomato:5973572|1792071782353
+utr:444444444444|credit|500.00|txn:credit:500.00:INR:-:zomato:5973574|1792072293062
+txn:credit:500.00:INR:-:zomato:5973574|txn:credit:500.00:INR:-:zomato:5973574|1792072293062
+
+stale semantic row present?|0     <-- pruned (dedup_key = semantic_key, 11 min old)
+seeded exact row present?  |1     <-- SURVIVES (dedup_key != semantic_key) — the fixed predicate
+batch-1 semantic row present?|1   <-- 8.5 min old at prune time, inside the 10-minute window
+```
+
+Under the old predicate the seeded **exact** row would also have been deleted (its
+`semantic_key` is not null); with the fix it survives, while its semantic-only twin is
+pruned. This is the on-device half of the row 3.6 evidence; unit Test D pins the same
+predicate on the JVM.
+
+## 10.10 What this section does NOT cover
+
+- **Audibility.** The TTS evidence is the engine-accepted utterance line plus the platform
+  synthesis; nothing was listened to.
+- **The reference APK's exact dedup constants.** The 5-minute bucket and 10-minute prune are
+  PayAlert's own constants; the reference exposes no readable equivalent beyond the
+  behaviour rebuilt here.
+- **SMS path.** Not re-run in this pass; §9.4.5 still stands for it on its own.

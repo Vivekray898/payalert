@@ -1,5 +1,7 @@
 package com.vivekray898.payalert.parsers
 
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.util.Locale
 
 /**
@@ -13,14 +15,69 @@ import java.util.Locale
 object DedupKeyBuilder {
 
     const val DEFAULT_WINDOW_MINUTES = 5
+    const val SEMANTIC_WINDOW_MINUTES = 5
+    private const val SEMANTIC_PRUNE_MILLIS = 10L * 60 * 1000
 
-    fun build(
+    /** Tier-1 exact-source key (notification package + timestamp + raw-text hash). */
+    fun exactKey(
         kind: String,
         amount: Double,
         utr: String?,
         merchant: String?,
         receivedAt: Long,
         windowMinutes: Int = DEFAULT_WINDOW_MINUTES
+    ): String = build(kind, amount, utr, merchant, receivedAt, windowMinutes)
+
+    /**
+     * Tier-2 semantic key built from the *parsed transaction* so that the same
+     * underlying payment arriving from different UPI apps collapses to one key.
+     *
+     * Format: txn:<direction>:<amount>:<currency>:<account-or-"-">:<merchant-normalized>:<time-bucket>
+     */
+    fun semanticKey(
+        kind: String,
+        amount: Double,
+        currency: String,
+        merchant: String?,
+        account: String?,
+        receivedAt: Long
+    ): String {
+        // Amount: exact match after setScale(2, HALF_UP)
+        val amountText = BigDecimal.valueOf(amount).setScale(2, RoundingMode.HALF_UP).toPlainString()
+
+        // Merchant normalization: lowercase -> strip @... VPA suffix -> remove stop-words -> collapse whitespace
+        val normalizedMerchant = normalizeMerchant(merchant)
+
+        // Account rule: if either side is null, ignore this field (use "-").
+        // Only when both are non-null must they match.
+        val accountPart = account?.takeIf { it.isNotBlank() } ?: "-"
+
+        // Time bucket: floor(receivedAt / 300_000) — 5-minute window
+        val bucket = receivedAt / 300_000L
+
+        return "txn:$kind:$amountText:$currency:$accountPart:$normalizedMerchant:$bucket"
+    }
+
+    /** Normalize merchant for semantic key. */
+    fun normalizeMerchant(merchant: String?): String =
+        merchant
+            ?.lowercase(Locale.US)
+            ?.replace(Regex("@[^\\s]+"), "") // strip @... VPA suffix
+            ?.replace(Regex("\\b(upi|paid|received|sent|rs|inr)\\b"), "") // remove stop-words
+            ?.replace(Regex("[^a-z0-9]+"), " ") // non-alnum to space
+            ?.trim()
+            ?.replace(Regex("\\s+"), " ") // collapse whitespace
+            ?.takeIf { it.isNotBlank() }
+            .orEmpty()
+
+    /** Legacy exact-source key builder (kept for backwards compatibility). */
+    private fun build(
+        kind: String,
+        amount: Double,
+        utr: String?,
+        merchant: String?,
+        receivedAt: Long,
+        windowMinutes: Int
     ): String {
         val amountText = String.format(Locale.US, "%.2f", amount)
         val reference = utr?.trim()?.uppercase(Locale.US)
@@ -29,10 +86,10 @@ object DedupKeyBuilder {
         }
         val windowMillis = windowMinutes.coerceAtLeast(1) * 60_000L
         val bucket = receivedAt / windowMillis
-        return "amt:$amountText|$kind|${normalize(merchant)}|$bucket"
+        return "amt:$amountText|$kind|${normalizeLegacy(merchant)}|$bucket"
     }
 
-    private fun normalize(value: String?): String =
+    private fun normalizeLegacy(value: String?): String =
         value
             ?.lowercase(Locale.US)
             ?.replace(Regex("[^a-z0-9]"), "")

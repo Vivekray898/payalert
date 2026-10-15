@@ -15,5 +15,12 @@ data class DedupEntry(
     val dedupKey: String,
 
     @ColumnInfo(name = "seen_at")
-    val seenAt: Long
+    val seenAt: Long,
+
+    /**
+     * Tier-2 semantic key for cross-app duplicate suppression. Null for exact-only
+     * entries (same-app re-posts, repeated SMS), which keeps the partial index small.
+     */
+    @ColumnInfo(name = "semantic_key")
+    val semanticKey: String? = null
 )

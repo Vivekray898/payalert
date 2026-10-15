@@ -12,6 +12,7 @@ import com.vivekray898.payalert.parsers.ParserRegistry
 import com.vivekray898.payalert.parsers.PatternConfig
 import com.vivekray898.payalert.parsers.SkipConfig
 import com.vivekray898.payalert.pipeline.PaymentPipeline
+import com.vivekray898.payalert.pipeline.RoomPaymentStore
 import com.vivekray898.payalert.settings.AppSettings
 import com.vivekray898.payalert.tts.TtsEngine
 import com.vivekray898.payalert.widget.PayAlertWidgetProvider
@@ -59,7 +60,12 @@ object AppGraph {
         /** Application context, kept so the pipeline can notify home-screen widgets. */
         private val appContext: Context = context.applicationContext
 
-        val pipeline: PaymentPipeline = PaymentPipeline(database, parser, settings, tts) {
+        val pipeline: PaymentPipeline = PaymentPipeline(
+            RoomPaymentStore(database),
+            parser,
+            { settings.state.value },
+            tts::announce
+        ) {
             PayAlertWidgetProvider.refresh(appContext)
         }
 

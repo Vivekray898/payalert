@@ -95,6 +95,9 @@ dependencies {
 
     // Unit tests (pure-JVM; parser/dedup/format logic has no Android dependencies)
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+    testImplementation("org.mockito:mockito-inline:5.2.0")
+    testImplementation("androidx.room:room-testing:2.8.5")
 
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")

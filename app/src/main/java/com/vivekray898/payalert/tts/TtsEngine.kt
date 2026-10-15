@@ -9,6 +9,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.speech.tts.TextToSpeech
+import android.util.Log
 import com.vivekray898.payalert.settings.AppSettings
 import com.vivekray898.payalert.settings.SoundMode
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -71,6 +72,9 @@ class TtsEngine(
     /** Speak [text], initialising the engine on first use. */
     fun speak(text: String) {
         if (text.isBlank()) return
+        // One log line per utterance accepted by the engine, so runtime evidence can
+        // count announcements directly from logcat.
+        Log.i(TAG, "TTS utterance: $text")
         ensureInitialized()
         if (_ready.value) speakNow(text) else pendingText = text
     }
@@ -150,5 +154,9 @@ class TtsEngine(
         engine?.shutdown()
         engine = null
         _ready.value = false
+    }
+
+    private companion object {
+        const val TAG = "PayAlert"
     }
 }
