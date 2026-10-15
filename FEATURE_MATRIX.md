@@ -24,9 +24,9 @@ minSdk 24, targetSdk 36 (read from `.apk_extract/manifest.xml` and the DEX symbo
 
 - **source-inspected** — the reference artefact was read (extracted manifest, resources, DEX symbols).
 - **compiled** — `./gradlew clean :app:assembleDebug` succeeded (12,506,521-byte debug APK produced).
-- **unit-tested** — `./gradlew :app:testDebugUnitTest` ran **95 tests, 0 failures, 0 errors**
-  (12 suites; this pass added `PaymentPipelineTest` — sequential collapse, the concurrent
-  mutex proof with a control, both six-minute behaviours, and the prune cutoffs).
+- **unit-tested** — `./gradlew :app:testDebugUnitTest --rerun-tasks` ran **99 tests, 0 failures, 0 errors**
+  (13 suites; this pass added the four-test `SoundPlaybackTest`, with eight assertions for the
+  pure mode decision function).
 - **schema-verified** — Room's KSP processor validates every `@Query` SQL string at compile time;
   an unknown column or invalid SQL fails the build. Every DAO query compiled.
 - **manifest-verified** — component declarations read back out of the *built* APK with `aapt2`.
@@ -89,10 +89,12 @@ minSdk 24, targetSdk 36 (read from `.apk_extract/manifest.xml` and the DEX symbo
 | 4.3 | Speech speed / pitch | `TtsSettingsActivity` | `implemented but unverified` | Sliders persist and are applied via `setSpeechRate`/`setPitch` | Not heard |
 | 4.4 | Volume | `TtsSettingsActivity` | `implemented but unverified` | Slider persists; applied via `KEY_PARAM_VOLUME` (TextToSpeech has no `setVolume`) | Not heard |
 | 4.5 | Custom announcement format | announcement customisation | `implemented and verified` | `AnnouncementFormatter` with `{amount} {merchant} {bank} {kind}`, per-direction templates with a live preview; 4 unit tests | — |
-| 4.6 | Custom announcement sounds | 11 audio files (verified with `unzip -l`: 6 MP3s in `assets/` — cashier_ka_ching, coin_recieved, gun_shot, service_bell_ring, spinning_coin, templebell — plus `res/raw/audio1..4.mp3` and `zxing_beep.ogg`) | `implemented but unverified` | A chime is **generated on-device** (`ToneGenerator`) rather than copying the reference's audio assets; selectable as *Chime then voice* / *Chime only* | Not listened to |
+| 4.6 | Custom announcement sounds | Reference sound resources | `implemented and verified` | The supplied `kaching-sound-effect.mp3` is bundled as `res/raw/kaching.mp3`; runtime logcat shows `chime_loaded resource=kaching`, volume-backed starts, and completion for payment and preview paths (`BUILD_AND_VERIFICATION.md` §12) | Audibility cannot be confirmed by me; check by ear is required |
 | 4.7 | Per-direction announcement toggle | — | `implemented and verified` | **Runtime:** switching "Money received" off made the real pipeline return `kind_disabled` for a credit; switching it back on restored `accepted` | — |
 | 4.8 | Minimum-amount filter | — | `implemented and verified` | **Runtime, through the Settings field itself:** threshold `1000` → a `Rs.600` credit returned `below_minimum` and stored nothing; a `Rs.1500` credit in the same session was stored. Clearing the field to `0` and re-sending the ₹600 message then stored it — the same message, opposite outcome | Entry field was uneditable (re-seeded from settings on every keystroke); fixed in this pass |
-| 4.9 | Sound modes + vibration | `TtsSettingsActivity` | `implemented but unverified` | Four modes (voice only / chime then voice / chime only / silent) and a vibrate toggle, both honoured by `TtsEngine.announce` | Not listened to / felt |
+| 4.9 | Sound modes + vibration | `TtsSettingsActivity` | `implemented and verified` | Four emulator SMS-payment captures show mode decisions under `PayAlertSound`; silent mode logs vibration only when enabled, voice-only logs speech only, and both chime modes log the configured vibration/chime transitions (`BUILD_AND_VERIFICATION.md` §12) | Audibility and physical vibration cannot be confirmed by me; check by ear and by feel are required |
+| 4.10 | Preview on Sound chip selection | Settings sound selector | `implemented and verified` | Four chip-tap logcat captures have `preview=true`, with no payment-pipeline transition in the preview path (`BUILD_AND_VERIFICATION.md` §12) | Audibility cannot be confirmed by me; check by ear is required |
+| 4.11 | Chime-then-voice chaining | `TtsSettingsActivity` | `implemented and verified` | Payment and preview logcat show `chime_started` → `chime_completed` → `speech_requested reason=after_chime` → `speech_queued` (`BUILD_AND_VERIFICATION.md` §12) | Audibility cannot be confirmed by me; check by ear is required |
 
 ## 5. Data, history and cashbook
 
@@ -148,13 +150,17 @@ captured with `adb exec-out screencap -p` on the `Pixel_8_Pro` AVD (Android 14 /
 
 | # | Screen | Reference evidence (APK) | PayAlert status | Evidence | Gap |
 |---|---|---|---|---|---|
-| 7.1 | Home | `ui.MainHomeActivity` | `implemented and verified` | `screenshots/after/home.png` (228,785 B) and `screenshots/after/night/home.png` (225,794 B). Frame shows teal `In` / orange `Out` chips with a `headlineSmall` navy `Net`, six icon-led detection rows coloured by state, a filled `Transactions` + outlined `Payment QR`, and recent payments with a leading direction avatar and the merchant rendered as stored. The a11y dump lists both recent rows with `content-desc="Money out"` / `"Money in"` | — |
-| 7.2 | History (transactions) | `ui.transactions.TransactionsActivity` | `implemented and verified` | `screenshots/after/history.png` (267,082 B) and `screenshots/after/night/history.png` (267,446 B). Frame shows `In`/`Out`/`Items` stat chips, a search field with a leading glyph and a trailing clear button, `DIRECTION`/`RANGE`/`ACCOUNT` chip groups on separate labelled rows, and an app bar carrying `Analytics`, `Export history` and `Clear filters`. Rows read `via SMS · HDFC Bank` (never the raw detector string or sender id) | — |
+| 7.1 | Home | `ui.MainHomeActivity` | `implemented and verified` | `screenshots/after/home.png` (191,202 B) and `screenshots/after/night/home.png` (188,166 B). Frame shows teal `In` / orange `Out` chips with a `headlineSmall` navy `Net`, six icon-led detection rows coloured by state, a filled `Transactions` + outlined `Payment QR`, and recent payments with a leading direction avatar and the merchant rendered as stored. The a11y dump lists both recent rows with `content-desc="Money out"` / `"Money in"` | — |
+| 7.2 | History (transactions) | `ui.transactions.TransactionsActivity` | `implemented and verified` | `screenshots/after/history.png` (137,898 B) and `screenshots/after/night/history.png` (140,461 B). Frame shows `In`/`Out`/`Items` stat chips, a search field with a leading glyph and a trailing clear button, `DIRECTION`/`RANGE`/`ACCOUNT` chip groups on separate labelled rows, and an app bar carrying `Analytics`, `Export history` and `Clear filters`. Rows read `via SMS · HDFC Bank` (never the raw detector string or sender id) | — |
 | 7.3 | Analytics | `ui.analytics.TransactionAnalyticsActivity` | `implemented and verified` | `screenshots/after/analytics.png` (228,089 B) and `screenshots/after/night/analytics.png` (225,861 B). Frame shows the four range chips on one line in a scroll row, the summary card with `In`/`Out` chips, spending-by-category bars, a populated `Top payees` list, the single-day header `Today`, and a right-aligned tonal `Share summary (CSV)` | No chart library — proportional bars only |
-| 7.4 | Cashbook | `ui.cashbook.CashbookActivity` | `implemented and verified` | `screenshots/after/cashbook.png` (138,395 B) and `screenshots/after/night/cashbook.png` (140,355 B). Frame shows `Balance` over `₹0.00` in `displaySmall`, `In`/`Out`/`Entries` chips, a filled `+ Add entry` + outlined `Report`, the overflow `More actions` action in the app bar, and an icon-led empty state with a `+ Add your first entry` button | — |
-| 7.5 | Upcoming payments | `ui.passbook.UpcomingPaymentsActivity` | `implemented and verified` | `screenshots/after/upcoming.png` (111,505 B) and `screenshots/after/night/upcoming.png` (111,429 B). Frame shows `To pay` / `To receive` chips, a single filled `+ Add reminder`, an icon-led empty state, and **no** `Re-arm alarms` on the surface — its a11y dump contains `Add reminder` only, with the maintenance action inside the `More actions` overflow | — |
-| 7.6 | Settings | `ui.settings.SettingsActivity` + per-feature settings screens | `implemented and verified` | `screenshots/after/settings.png` (232,592 B) and `screenshots/after/night/settings.png` (225,455 B). Frame shows one consistent card header style, the three sound-mode chips on a single scroll row, permission values coloured teal when granted and orange when not, and secondary actions demoted to outlined buttons | The reference's own Settings defect list was truncated in the brief, so the changes made are the ones listed in `screenshots/COMPARISON.md` rather than a point-for-point match |
+| 7.4 | Cashbook | `ui.cashbook.CashbookActivity` | `implemented and verified` | `screenshots/after/cashbook-populated.png` (140,690 B) and `screenshots/after/night/cashbook-populated.png` (144,102 B). Frame shows `Balance` over `₹40.00` in `displaySmall`, `In 40.00`/`Out 0.00`/`Entries 1` chips, a `Chai · Food` row with a teal up-arrow avatar, a filled `+ Add entry` + outlined `Report`, the overflow `More actions` action in the app bar | — |
+| 7.5 | Upcoming payments | `ui.passbook.UpcomingPaymentsActivity` | `implemented and verified` | `screenshots/after/upcoming-populated.png` (122,543 B) and `screenshots/after/night/upcoming-populated.png` (123,797 B). Frame shows `To pay 0.00` / `To receive 0.00` chips, a single filled `+ Add reminder`, an icon-led empty state, and **no** `Re-arm alarms` on the surface — its a11y dump contains `Add reminder` only, with the maintenance action inside the `More actions` overflow | — |
+| 7.6 | Settings | `ui.settings.SettingsActivity` + per-feature settings screens | `implemented and verified` | `screenshots/after/settings.png` (230,874 B) and `screenshots/after/night/settings.png` (217,995 B). Frame shows one consistent card header style, the three sound-mode chips on a single scroll row, permission values coloured teal when granted and orange when not, and secondary actions demoted to outlined buttons | The reference's own Settings defect list was truncated in the brief, so the changes made are the ones listed in `screenshots/COMPARISON.md` rather than a point-for-point match |
 | 7.7 | Bottom navigation | bottom tab bar in reference | `implemented and verified` | `screenshots/after/home.png` and the a11y dump of every captured screen list exactly five items — `Home`, `History`, `Cashbook`, `Upcoming`, `Settings` — each with an icon and one label; there is no two-letter abbreviation anywhere. The indicator is `tertiaryContainer` and the selected icon/label `tertiary`; probed on the frame as `rgb(225,241,239)` in day and `rgb(3,71,61)` in night | — |
+| 7.8 | Settings — persistent label on numeric input | — | `implemented and verified` | `screenshots/after/settings-min-amount-filled.png` (232,203 B). The "Ignore amounts below (₹)" `labelLarge` text sits above the `OutlinedTextField` and remains visible while the user types `500`; the supporting text `"Payments under this amount are not announced"` appears below. The field keeps its own text state and only the parsed value is persisted. Source: `ui/settings/SettingsScreen.kt` lines 101–115 | — |
+| 7.9 | Settings — slider endpoint labels | — | `implemented and verified` | `screenshots/after/settings-duplicate-window.png` (232,952 B). The `SliderRow` composable renders `"1 min"` on the left and `"30 min"` on the right in `bodySmall onSurfaceVariant`, plus a chip showing `"5 min"` that updates as the slider moves. Source: `ui/components/Common.kt` lines 398–449, called from `SettingsScreen.kt` lines 143–144 | — |
+| 7.10 | Settings — bottom nav does not occlude content | — | `implemented and verified` | `screenshots/after/settings-scrolled-bottom.png` (205,684 B) and `screenshots/after/night/settings-scrolled-bottom.png` (205,550 B). The `LazyColumn` has `.padding(bottom = 96.dp)` (line 91 of `SettingsScreen.kt`), and the pixel data confirms the last visible card row ends at y ≈ 2632 while the nav bar band begins at y 2672 — a 40 px gap with no overlap. The `Reset all settings` button (a11y bounds y 1978–2038) is fully tappable | — |
+| 7.11 | Semantic palette mapping (credit teal / debit orange / warning orange / healthy teal) | — | `implemented and verified` | Pixel samples in `screenshots/PALETTE.md` §Semantic application: credit amount `#058E7A` (1808 px), healthy status icons `#058E7A` (1288 px each), degraded warning icon `#F65026` (898 px). See §2 below for full detail | — |
 
 Night-mode frames were produced by `adb shell cmd uimode night yes` followed by a full
 capture pass; the day frames by `cmd uimode night no`. The two passes are distinguishable by
@@ -169,17 +175,20 @@ re-photograph of the light one.
 | 8.2 | Dynamic colour decision | `implemented and verified` | **Disabled deliberately.** `PayAlertTheme` always passes the explicit `LightColors` / `DarkColors` scheme and never calls `dynamicLightColorScheme` / `dynamicDarkColorScheme`, so a wallpaper-derived scheme can never displace the icon palette. Verified by reading `ui/theme/Theme.kt` and by the day/night frames still showing the brand navy and teal on an API 34 device that supports dynamic colour |
 | 8.3 | Semantic colour mapping | `implemented and verified` | teal = money in and healthy, orange = money out and warning, red = failure, navy = primary action and headings. The three status colours live in one place (`ui/components/Common.kt`) and are shared by Home, History, Analytics and Settings, so the screens cannot drift apart. Visible in `screenshots/after/home.png` and `screenshots/after/settings.png` |
 | 8.4 | Night palette | `implemented and verified` | Hand-tuned from the same four source colours (not an inversion): background `#10131C`, surface `#171B24`, primary `#6F68A8`, tertiary `#4FD9B5`, statuses `#4FD9B5` / `#FF8A5C` / `#F2B8B5`. Probed on `screenshots/after/night/home.png` as `rgb(16,19,28)`, `rgb(23,27,36)`, `rgb(111,104,168)`. The values table is in `screenshots/PALETTE.md` |
+| 8.5 | Before / after visual comparison | `implemented and verified` | Six day+night before/after frame pairs captured from the pre-rebrand APK (`f4b31e5`) vs the rebranded APK (`9ec72de` + settings 1a–1c fixes). See `screenshots/COMPARISON.md` for the side-by-side embeds and per-screen change notes. The git commands that produced the before frames are recorded in §3 of that file. Blocker: the "Analytics" entry point in the pre-rebrand build is hidden behind the health-check banner on the Transactions screen; a workaround was used (tap `Fix` then navigate directly) |
 
 ---
 
 ## Summary
 
-**Verified by automated test (95 tests, 0 failures, read from this run's XMLs):** parser rules
+**Verified by automated test (99 tests, 0 failures, read from this run's XMLs):** parser rules
 (credit/debit/skip/amount/UTR/account/merchant/direction/currency), config loading, source
 inference, dedup keys and windowing (including the concurrent-mutex proof and its control,
 and both prune cutoffs), announcement formatting, analytics maths, cashbook report maths, CSV
 export shape, UPI link building, QR encode→decode round-trip, the launch-time service health
 evaluator and the rating-prompt policy.
+The pure sound-mode decision function is also covered by eight assertions in
+`SoundPlaybackTest`.
 
 **Verified at runtime on Android 14 (API 34) with the real debug APK:** SMS detection,
 notification detection, cross-app semantic duplicate suppression **on the notification path**
@@ -193,7 +202,8 @@ mark paid, monthly roll-forward, real alarms), reboot recovery, minimum-amount f
 dedup pruning, Backup & restore (export, import, skip accounting), QR rendering, the
 home-screen widget (placed, live, self-refreshing), Help & FAQ, Privacy & terms, the system
 permission deep links, the launch-time health check, the rating prompt, Settings toggles
-affecting the pipeline, and the Diagnostics pipeline test. No crash occurred in any run.
+affecting the pipeline, the four Settings sound modes, sound-chip previews, chime-to-voice
+chaining and the Diagnostics pipeline test. No crash occurred in any run.
 
 **Added in the last pass and verified at runtime:** reboot recovery (real `adb reboot`),
 Cashbook edit, Cashbook export button, reminder mark-paid and monthly roll-forward (Room plus
@@ -204,7 +214,7 @@ links, the launch-time service health check and the rating prompt.
 **Implemented, compiled and manifest-verified, not yet executed:** unlock-triggered restart
 (the receiver is registered and a real unlock was performed, but a dead monitor could not be
 created without root/SELinux changes — the reason is recorded in §9.6 of the verification
-record), speech speed/pitch/volume audibility, and the chime and vibration cues.
+record), and speech speed/pitch/volume audibility.
 
 **Partial:** balance-only message tracking (the balance *on* a payment is captured),
 team/pairing (schema only).

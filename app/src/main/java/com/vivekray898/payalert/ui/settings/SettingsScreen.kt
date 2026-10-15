@@ -85,10 +85,10 @@ fun SettingsScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
-            // The Scaffold's bottom bar occupies the bottom ~96 dp of the content
-            // area. Without this the last interactive row (Reset all settings) sits
-            // underneath the bar and is not tappable.
-            .padding(bottom = 96.dp),
+                // The Scaffold's bottom bar occupies the bottom ~96 dp of the content
+                // area. Without this the last interactive row (Reset all settings) sits
+                // underneath the bar and is not tappable.
+                .padding(bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(
@@ -180,7 +180,10 @@ fun SettingsScreen(
                 SoundMode.labels.forEach { (mode, label) ->
                     FilterChip(
                         selected = settings.soundMode == mode,
-                        onClick = { graph.settings.setSoundMode(mode) },
+                        onClick = {
+                            graph.settings.setSoundMode(mode)
+                            graph.tts.preview(context, mode)
+                        },
                         label = { Text(label) }
                     )
                 }

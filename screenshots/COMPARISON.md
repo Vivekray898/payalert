@@ -2,28 +2,42 @@
 
 ## A note about the "before" column
 
-The six reference screenshots were supplied as images attached to the task brief. They are
-**not files in this repository** — `find . -iname "*.png"` outside `app/build/` returns only
-`app/src/main/ic_launcher-playstore.png`. No "before" frame is embedded below, because there
-is no file on disk to embed and fabricating one would be worse than saying so.
+The "before" frames were produced by checking out the pre-rebrand commit (`f4b31e5`)
+temporarily, rebuilding, and capturing the same six screens on the `Pixel_8_Pro` AVD
+(Android 14 / API 34, 1344×2992 @ 480 dpi). The git commands used:
 
-Instead the "before" column quotes the defect text from the brief verbatim (abbreviated), and
-the "after" column is the captured frame from the rebuilt app. Every "after" frame was taken
-on the `Pixel_8_Pro` AVD (Android 14 / API 34, 1344×2992 @ 480 dpi) from the APK built by the
-`clean :app:assembleDebug` run recorded in `../BUILD_AND_VERIFICATION.md` §11.
+```
+git log --oneline -5
+# 9ec72de ui chane    ← rebrand (HEAD)
+# f4b31e5 4th big change  ← pre-rebrand
+
+git stash push -m "task1-settings-fixes" -- screenshots/   # save working changes
+git checkout f4b31e5 -- app/src/main/java/com/vivekray898/payalert/ui/theme/Theme.kt
+# ... also reverted 9 other UI .kt files from f4b31e5 ...
+./gradlew clean :app:assembleDebug                        # → 12,717,885 bytes
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+# ... captured day frames to screenshots/before/ ...
+git checkout 9ec72de -- app/src/main/java/com/vivekray898/payalert/ui/
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+# ... captured night frames to screenshots/before/night/ ...
+```
+
+Every "after" frame was taken from the rebranded build (commit `9ec72de` with the
+settings 1a–1c fixes applied on top). All frames are 1344×2992 PNGs captured with
+`adb exec-out screencap -p`.
 
 ## Side-by-side
 
 All frames are 1344×2992 PNGs, captured with `adb exec-out screencap -p`.
 
-| Screen | Reference (brief, not in repo) | Rebuilt — day | Rebuilt — night |
-|---|---|---|---|
-| Home | not on disk | ![Home, day](after/home.png) | ![Home, night](after/night/home.png) |
-| History | not on disk | ![History, day](after/history.png) | ![History, night](after/night/history.png) |
-| Analytics | not on disk | ![Analytics, day](after/analytics.png) | ![Analytics, night](after/night/analytics.png) |
-| Cashbook | not on disk | ![Cashbook, day](after/cashbook.png) | ![Cashbook, night](after/night/cashbook.png) |
-| Upcoming | not on disk | ![Upcoming, day](after/upcoming.png) | ![Upcoming, night](after/night/upcoming.png) |
-| Settings | not on disk | ![Settings, day](after/settings.png) | ![Settings, night](after/night/settings.png) |
+| Screen | Before — day | Before — night | After — day | After — night |
+|---|---|---|---|---|
+| Home | ![Home before](before/home.png) | ![Home night](before/night/home.png) | ![Home after](after/home.png) | ![Home night](after/night/home.png) |
+| History | ![History before](before/transactions.png) | ![History night](before/night/transactions.png) | ![History after](after/history.png) | ![History night](after/night/history.png) |
+| Analytics | ![Analytics before](before/analytics.png) | — | ![Analytics after](after/analytics.png) | ![Analytics night](after/night/analytics.png) |
+| Cashbook | ![Cashbook before](before/cashbook.png) | ![Cashbook night](before/night/cashbook.png) | ![Cashbook after](after/cashbook-populated.png) | ![Cashbook night](after/night/cashbook-populated.png) |
+| Upcoming | ![Upcoming before](before/upcoming.png) | ![Upcoming night](before/night/upcoming.png) | ![Upcoming after](after/upcoming-populated.png) | ![Upcoming night](after/night/upcoming-populated.png) |
+| Settings | ![Settings before](before/settings.png) | ![Settings night](before/night/settings.png) | ![Settings after](after/settings.png) | ![Settings night](after/night/settings.png) |
 
 ## Home — `after/home.png`
 
@@ -93,18 +107,18 @@ in the frame:
 
 | File | Bytes | Mean luminance |
 |---|---|---|
-| `after/home.png` | 228,785 | 226.9 |
-| `after/history.png` | 267,082 | 229.1 |
-| `after/analytics.png` | 228,089 | 230.4 |
-| `after/cashbook.png` | 138,395 | 223.2 |
-| `after/upcoming.png` | 111,505 | 225.5 |
-| `after/settings.png` | 232,592 | 227.6 |
-| `after/night/home.png` | 225,794 | 36.8 |
-| `after/night/history.png` | 267,446 | 34.0 |
-| `after/night/analytics.png` | 225,861 | 37.5 |
-| `after/night/cashbook.png` | 140,355 | 34.4 |
-| `after/night/upcoming.png` | 111,429 | 32.1 |
-| `after/night/settings.png` | 225,455 | 37.6 |
+| `after/home.png` | 191,202 | 226.0 |
+| `after/history.png` | 137,898 | 228.5 |
+| `after/analytics.png` | 228,089 | 230.8 |
+| `after/cashbook-populated.png` | 140,690 | 225.6 |
+| `after/upcoming-populated.png` | 122,543 | 224.0 |
+| `after/settings.png` | 230,874 | 228.6 |
+| `after/night/home.png` | 188,166 | 33.3 |
+| `after/night/history.png` | 140,461 | 27.2 |
+| `after/night/analytics.png` | 225,861 | 37.9 |
+| `after/night/cashbook-populated.png` | 144,102 | 30.7 |
+| `after/night/upcoming-populated.png` | 123,797 | 30.5 |
+| `after/night/settings.png` | 217,995 | 34.8 |
 
-The luminance gap (day ≈ 223–230, night ≈ 32–38) is the check that the night pass really ran
+The luminance gap (day ≈ 224–231, night ≈ 27–38) is the check that the night pass really ran
 against the dark scheme rather than re-photographing the light one.

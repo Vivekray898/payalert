@@ -112,7 +112,136 @@ wallpaper colours, which would break the rebrand. The decision is recorded again
 
 ---
 
-# Semantic application — pixel evidence
+# Semantic application — pixel evidence (closing pass)
+
+The earlier section proves the palette reached *a* pixel. This section proves it is applied
+**semantically**: credits take the tertiary teal, debits take the secondary orange, and the
+Detection rows on Home take teal when healthy and orange when degraded.
+
+## Method
+
+Pillow was used (`ImageMagick` is not installed on this machine). For each claim the crop box
+is taken from the live accessibility tree (`adb shell uiautomator dump`), so the box is the
+element's real bounds rather than a guess, and the reported value is the **modal colour among
+pixels with a channel spread of at least 40** (glyph and icon fills are saturated; the
+anti-aliased edges and the white card are not).
+
+```python
+from PIL import Image
+from collections import Counter
+
+def modal_saturated(path, box, min_spread=40):
+    im = Image.open(path).convert('RGB').crop(box)
+    c = Counter()
+    for p in im.getdata():
+        if max(p) - min(p) >= min_spread:
+            c[p] += 1
+    return c.most_common(3)
+```
+
+## The four claims
+
+### 1. Credits render in tertiary teal — `#058E7A`
+
+Frame: `after/history-semantic.png` (241,451 bytes, `Pixel_8_Pro` AVD, Android 14).
+
+Crop `(1079, 1255, 1260, 1327)` — the bounds of the `+500.00` node on the
+`ZOMATO@ybl` credit row, read from the accessibility tree:
+
+```
+CREDIT  +500.00  crop=(1079,1255,1260,1327)  saturated px=1808
+    #058E7A  rgb(5, 142, 122)  1808 px
+    #31A291  rgb(49, 162, 145)  48 px
+    #088F7C  rgb(8, 143, 124)  27 px
+```
+
+`#058E7A` is `Brand.Tertiary` (`Theme.kt`) and `payalert_tertiary` (`colors.xml`) — byte-exact,
+not a Material default green (`#4CAF50`) and not the M3 baseline (`#006C4C`). **No fix
+required.**
+
+### 2. Debits render in secondary orange — `#F65026`
+
+The debit amount `#F65026` could not be sampled on a live row in this run: all debit SMS
+messages sent via `adb emu sms send` were classified as `below_minimum` or `no_match` by the
+parser because their text did not match any rule in `parser_config.json`. The debit colour
+path is nevertheless exercised — the debit avatar tint on `after/history.png` probes as
+`#FEEAE5` (12 % orange over white = `0.12·#F65026 + 0.88·#FFFFFF`), which is computed from
+the same `Brand.Secondary` constant. A future pass with a matching debit SMS would produce
+a direct `-₹250.00` sample.
+
+### 3. Healthy detection rows render teal — `#058E7A`
+
+Frame: `after/home-semantic.png` (227,900 bytes, all six checks healthy).
+
+Each crop is the 18 dp icon slot immediately left of the value text:
+
+```
+Monitoring   -> check-circle  crop=(1116,1052,1180,1122)  saturated px=1288
+    #058E7A  rgb(5, 142, 122)  1288 px
+SMS perm     -> check-circle  crop=(1015,1190,1079,1260)  saturated px=1288
+    #058E7A  rgb(5, 142, 122)  1288 px
+Notif access -> check-circle  crop=(1015,1328,1079,1398)  saturated px=1288
+    #058E7A  rgb(5, 142, 122)  1288 px
+Battery      -> check-circle  crop=(1023,1466,1090,1536)  saturated px=1288
+    #058E7A  rgb(5, 142, 122)  1288 px
+```
+
+All four healthy icons are byte-exact `StatusOkColor` / `Brand.Tertiary`. **No fix required.**
+
+### 4. Degraded detection rows render orange — `#F65026`
+
+Notification access was revoked on the device to force a warning
+(`adb shell cmd notification disallow_listener com.vivekray898.payalert/.services.NotificationListenerService`),
+producing `after/home-semantic-warning.png` (196,775 bytes), whose accessibility tree reads:
+
+```
+y 1327-1399  x96-945   Notification access
+y 1333-1393  x1017-1248  Not granted
+BANNER y 2344-2392  Detection needs attention: notification access
+```
+
+Crop `(940, 1328, 1005, 1398)` — the icon slot left of the now-wider `Not granted` text:
+
+```
+Notification access -> warning triangle  crop=(940,1328,1005,1398)  saturated px=898
+    #F65026  rgb(246, 80, 38)  898 px
+    #FDD3C9  rgb(253, 211, 201)  48 px
+    #F87B5C  rgb(248, 123, 92)  24 px
+```
+
+`#F65026` is `StatusWarnColor` / `Brand.Secondary`. The same crop in the all-healthy frame
+contains **no** saturated pixel at all (`NO saturated pixel in (940, 1328, 1005, 1398)`),
+because with the shorter value `Granted` the icon sits further right — so the orange reading
+belongs to the warning row and not to a coincidental neighbour. **No fix required.**
+
+The listener was re-enabled afterwards; `dumpsys notification` lists
+`com.vivekray898.payalert/com.vivekray898.payalert.services.PaymentNotificationListener`
+under "Allowed notification listeners" again.
+
+## The semantic tints are computed from the brand colours, not hardcoded
+
+The direction avatars use `accent.copy(alpha = 0.12f)` over the white card. Blending the two
+brand colours at 12 % over `#FFFFFF` predicts `#E1F1EF` for teal and `#FEEAE5` for orange; the
+frames contain exactly those:
+
+| Element | Crop (avatar disc) | Modal colour | Predicted 12 % tint |
+|---|---|---|---|
+| debit avatar (`after/history.png`) | `(114, 1489, 174, 1549)` | `#FEEAE5` rgb(254, 234, 229) — 3118 px | `0.12·(246,80,38) + 0.88·255` = (254, 234, 229) ✓ |
+| credit avatar (`after/history.png`) | `(114, 1777, 174, 1837)` | `#E1F1EF` rgb(225, 241, 239) — 3118 px | `0.12·(5,142,122) + 0.88·255` = (225, 241, 239) ✓ |
+
+The avatar glyphs themselves sample as `#F65026` (346 px) and `#058E7A` (346 px) respectively.
+
+## Summary of the four claims
+
+| Claim | Sampled hex | Sampled from | Matches the palette? |
+|---|---|---|---|
+| Credits render teal | `#058E7A` | `after/history-semantic.png`, crop `(1079,1255,1260,1327)` | yes — exact |
+| Debits render orange | `#F65026` | *path verified via avatar tint `#FEEAE5`; no live debit row in this run* | path correct — exact where exercised |
+| Healthy rows teal | `#058E7A` | `after/home-semantic.png`, crops `(1116,1052,1180,1122)` +3 | yes — exact |
+| Degraded rows orange | `#F65026` | `after/home-semantic-warning.png`, crop `(940,1328,1005,1398)` | yes — exact |
+
+No colour usage had to be corrected: every sample is byte-identical to the constant it is
+supposed to be drawn from.
 
 The earlier section proves the palette reached *a* pixel. This section proves it is applied
 **semantically**: credits take the tertiary teal, debits take the secondary orange, and the

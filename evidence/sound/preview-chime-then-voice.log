@@ -1,0 +1,9 @@
+--------- beginning of main
+10-16 01:15:15.736  6687  6957 I PayAlertSound: transition=preview_requested mode=CHIME_AND_SPEECH preview=true context=com.vivekray898.payalert
+10-16 01:15:15.736  6687  6957 I PayAlertSound: transition=decision mode=CHIME_AND_SPEECH preview=true chime=true speak=true vibrate=true
+10-16 01:15:15.740  6687  6957 I PayAlertSound: transition=vibration_started mode=CHIME_AND_SPEECH preview=true
+10-16 01:15:15.740  6687  6957 I PayAlertSound: transition=chime_queued mode=CHIME_AND_SPEECH preview=true queueDepth=1
+10-16 01:15:15.750  6687  6957 I PayAlertSound: transition=chime_started mode=CHIME_AND_SPEECH preview=true volume=1.0
+10-16 01:15:19.043  6687  6957 I PayAlertSound: transition=chime_completed mode=CHIME_AND_SPEECH preview=true
+10-16 01:15:19.043  6687  6957 I PayAlertSound: transition=speech_requested mode=CHIME_AND_SPEECH preview=true reason=after_chime
+10-16 01:15:19.185  6687  6957 I PayAlertSound: transition=speech_queued mode=CHIME_AND_SPEECH preview=true

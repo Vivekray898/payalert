@@ -1,0 +1,16 @@
+--------- beginning of main
+10-16 01:22:08.006  6687  6957 I PayAlertSound: transition=decision mode=CHIME_AND_SPEECH preview=false chime=true speak=true vibrate=true
+10-16 01:22:08.008  6687  6957 I PayAlertSound: transition=vibration_started mode=CHIME_AND_SPEECH preview=false
+10-16 01:22:08.008  6687  6957 I PayAlertSound: transition=chime_queued mode=CHIME_AND_SPEECH preview=false queueDepth=1
+10-16 01:22:08.019  6687  6957 I PayAlertSound: transition=chime_started mode=CHIME_AND_SPEECH preview=false volume=1.0
+10-16 01:22:08.307  6687  7672 I PayAlert: Notification pipeline result: no_match
+10-16 01:22:09.443  6687  7672 I PayAlert: Notification pipeline result: duplicate
+10-16 01:22:11.242  6687  6957 I PayAlertSound: transition=chime_completed mode=CHIME_AND_SPEECH preview=false
+10-16 01:22:11.242  6687  6957 I PayAlertSound: transition=speech_requested mode=CHIME_AND_SPEECH preview=false reason=after_chime
+10-16 01:22:11.243 13160  2343 I GoogleTTSServiceImpl: currentLocale = en-IN
+10-16 01:22:11.244 13160  2343 I GoogleTTSServiceImpl: currentLocale = en-IN
+10-16 01:22:11.246 13160  2343 I GoogleTTSServiceImpl: For default lang en-in is name en-IN-language (en-in-x-enc-server)
+10-16 01:22:11.249 13160  2343 I GoogleTTSServiceImpl: currentLocale = en-IN
+10-16 01:22:11.354  6687  6957 I PayAlertSound: transition=speech_queued mode=CHIME_AND_SPEECH preview=false
+10-16 01:22:11.355 13160  6958 I GoogleTTSServiceImpl: Synthesis request for locale eng-IND and name en-IN-language
+10-16 01:22:11.355 13160  6958 I GoogleTTSServiceImpl: TTS dispatch: en-in-x-enc-seanet-embedded

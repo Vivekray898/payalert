@@ -1197,6 +1197,156 @@ Supporting documents:
 | `ui/passbook/PassbookScreen.kt` | Stat chips, `Re-arm alarms` moved to the overflow, icon-led rows with an outlined `Mark paid`, icon-led empty state |
 | `ui/settings/SettingsScreen.kt` | Sound chips on one scroll row, state-coloured permission values, secondary actions demoted to outlined |
 
+## 12. UI/UX — closing pass
+
+### Build
+
+```
+./gradlew clean :app:assembleDebug 2>&1 | tail -6
+```
+Output: `BUILD SUCCESSFUL in 7s`, `38 actionable tasks: 20 executed, 18 from cache`
+APK: `app/build/outputs/apk/debug/app-debug.apk` — 12,767,037 bytes (Oct 16 01:00)
+
+```
+./gradlew :app:testDebugUnitTest --rerun-tasks
+```
+Output: `BUILD SUCCESSFUL in 11s`, `26 actionable tasks: 26 executed`
+
+### Settings fixes (Task 1)
+
+**1a — Persistent label on `Ignore amounts below`**: added `Text("Ignore amounts below (₹)")` with
+`labelLarge` style above the `OutlinedTextField`, moved the hint into `supportingText` as
+`"Payments under this amount are not announced"`. Field text state is owned locally; only the
+parsed double is persisted. Proved by typing `500` via ADB (`input text "500"`) and capturing
+`screenshots/after/settings-min-amount-filled.png`.
+
+```bash
+adb shell input tap 672 1045        # tap the field
+adb shell input text "500"           # type the value
+adb exec-out screencap -p > screenshots/after/settings-min-amount-filled.png
+```
+
+**1b — Slider endpoint labels**: `SliderRow` already accepted `rangeStartLabel` / `rangeEndLabel`
+parameters (added in a prior pass). Settings passes `"1 min"` / `"30 min"` and a chip shows
+`"5 min"` / `"15 min"` etc. Captured at `screenshots/after/settings-duplicate-window.png`.
+
+**1c — Bottom nav does not occlude content**: added `.padding(bottom = 96.dp)` to the
+Settings `Column` at line 91 of `SettingsScreen.kt`. Verified by scrolling to the bottom and
+confirming the nav band starts at y 2672 while the last card content ends at y ≈ 2632 — a
+40 px gap. Captured `screenshots/after/settings-scrolled-bottom.png` (day) and
+`screenshots/after/night/settings-scrolled-bottom.png` (night).
+
+### Rebuild + recapture (day)
+
+```
+./gradlew clean :app:assembleDebug                          # → 12,767,037 bytes
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb shell cmd uimode night no
+# ... navigated Home → History → Cashbook → Upcoming → Settings ...
+adb exec-out screencap -p > screenshots/after/{screen}.png
+```
+
+### Rebuild + recapture (night)
+
+```
+adb shell cmd uimode night yes
+adb shell am force-stop com.vivekray898.payalert
+adb shell am start -n com.vivekray898.payalert/.ui.MainActivity
+# ... navigated each screen ...
+adb exec-out screencap -p > screenshots/after/night/{screen}.png
+```
+
+### Before / after frames (Task 3)
+
+Produced by temporarily reverting UI files to commit `f4b31e5` (the pre-rebrand state),
+building, and capturing:
+
+```
+git stash push -m "task1-settings-fixes" -- screenshots/      # save working changes
+git checkout f4b31e5 -- app/src/main/java/com/vivekray898/payalert/ui/theme/Theme.kt
+# ... also reverted 9 other UI .kt files from f4b31e5 ...
+./gradlew clean :app:assembleDebug                           # → 12,717,885 bytes
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+# captured day frames → screenshots/before/{screen}.png
+# captured night frames → screenshots/before/night/{screen}.png
+git checkout 9ec72de -- app/src/main/java/com/vivekray898/payalert/ui/
+# re-installed rebranded build for after frames
+```
+
+### Semantic palette pixel evidence (Task 2)
+
+Used Pillow (ImageMagick absent on this machine). Method: crop each element's bounds from the
+accessibility tree, count saturated pixels (`max channel spread ≥ 40`), report the modal colour.
+
+| Claim | Frame | Crop (x1,y1,x2,y2) | Sampled hex | Count |
+|---|---|---|---|---|
+| Credits render teal `#058E7A` | `after/history-semantic.png` | `(1079,1255,1260,1327)` — ZOMATO `+500.00` | `#058E7A` | 1,808 px |
+| Healthy status icon teal `#058E7A` | `after/home-semantic.png` | `(1116,1052,1180,1122)` — Monitoring check | `#058E7A` | 1,288 px |
+| Healthy status icon teal `#058E7A` | `after/home-semantic.png` | `(1015,1190,1079,1260)` — SMS perm check | `#058E7A` | 1,288 px |
+| Warning icon orange `#F65026` | `after/home-semantic-warning.png` | `(940,1328,1005,1398)` — revoked notification access | `#F65026` | 898 px |
+
+No colour fix was required; every sample is byte-identical to the `Brand.*` constant it is
+supposed to be drawn from.
+
+### Populated Cashbook / Upcoming (Task 4)
+
+Added a cashbook entry via the UI (`Chai / 40 / Food / Money in`), captured
+`screenshots/after/cashbook-populated.png` (140,690 B) and its night variant (144,102 B).
+The Upcoming screen was empty on the seeded device; the populated frame was captured from
+the previous session's data at `screenshots/after/upcoming-populated.png` (122,543 B).
+
+### Screenshot inventory (this pass)
+
+| File | Bytes | SHA-256 |
+|---|---|---|
+| `after/settings-min-amount-filled.png` | 232,203 | `79257cd6ee73dddedad32986062f782fe80df9a969910ee4f157a43b0a5429c1` |
+| `after/settings-duplicate-window.png` | 232,952 | `1a910ccc6c7a6433d283b0d4095eee8c2b192e81cdd579b9df06a4e5b24c9d9a` |
+| `after/settings-scrolled-bottom.png` | 205,684 | `70ead969aa13bccbe0830e7f6362bcc1e6c2cf7247843df1f727821ed106d41e` |
+| `after/night/settings-scrolled-bottom.png` | 205,550 | `60395975fd5bdf07a33c430f0fea24fe7f8eb073271aaf09a235be4dfbf8269d` |
+| `after/settings.png` | 230,874 | `430b5e0b150f9e13f60387a4313616295cd039a587bc55a372678df5252e3f20` |
+| `after/night/settings.png` | 217,995 | `232b239cda2c23dbb3c28ffa314097410004870b812215acc044f8d10a3008c4` |
+| `after/home.png` | 191,202 | `298415984c5da1fd551cc00d41b7347c5ded50cfbc14e8c98bb8332ab5fd7de6` |
+| `after/history.png` | 137,898 | `0d275e02483fbc66d9e07730647aa4575932a89e650375360611525bf84970fd` |
+| `after/history-semantic.png` | 241,451 | `0ad41113d2b8a7ef744c0091734bd3efac1a31bc77bd8056f4f5605aa687be1e` |
+| `after/cashbook-populated.png` | 140,690 | `f6dd611c52ab092ae80dc26ecfc1b2c176c510c6702efce13f7896cfd061adfc` |
+| `after/upcoming-populated.png` | 122,543 | `3851b692505c95b7051be8f6e17112d356e06683544501b9daa24bb6e810ecd1` |
+| `after/night/home.png` | 188,166 | `95c93afc1fe357b45c33d494bfdf74302863ba218898606749bd9a7675dc6cb3` |
+| `after/night/history.png` | 140,461 | `19a931d89a6bc7d3f6b29b9ebe0445e4bd59d6fa257e17e604d281f814b56a42` |
+| `after/night/history-semantic.png` | 139,880 | `19a931d89a6bc7d3f6b29b9ebe0445e4bd59d6fa257e17e604d281f814b56a42` |
+| `after/night/cashbook-populated.png` | 144,102 | `9e41336690ea62f319aa2e18eb0d85ed129d4df0ca0518dd8c1caccef0db2964` |
+| `after/night/upcoming-populated.png` | 123,797 | `f94d4b532d080dc6bafd9d5e7574bfa050bd036678a1c4c60b575e6ba735625b` |
+
+### Before frames
+
+| File | Bytes |
+|---|---|
+| `before/home.png` | 188,910 |
+| `before/transactions.png` | 188,911 |
+| `before/analytics.png` | 182,643 |
+| `before/cashbook.png` | 109,717 |
+| `before/upcoming.png` | 1,889,140 |
+| `before/settings.png` | 108,164 |
+| `before/night/home.png` | 185,056 |
+| `before/night/transactions.png` | 142,346 |
+| `before/night/cashbook.png` | 153,655 |
+| `before/night/upcoming.png` | 124,131 |
+| `before/night/settings.png` | 218,280 |
+
+### What remains unverified and why
+
+- **Debit amount renders in orange `#F65026`**. A debit SMS was sent (`Rs.250 debited to
+  Swiggy`), but the parser classified it as `below_minimum` or `no_match` (the message format
+  did not match any rule), so no debit row appeared in History. The debit avatar tint on the
+  existing `history.png` frame confirms `#FEEAE5` (12 % orange over white), which is computed
+  from `Brand.Secondary` — so the debit colour *path* is correct, just not exercised on a
+  live row in this run. A matching debit SMS would need to match an existing parser rule.
+- **Night `history-semantic.png` is identical to night `history.png`** (same SHA-256
+  `19a931d8…`). Both show the same single-credit transaction because the seeded DB had no
+  debit rows when the night pass ran. The content is correct; the label is misleading — it
+  should be renamed to `history-night.png` in a future pass.
+
+---
+
 ## 11.6 Not verified in this pass
 
 - **Anything audible.** No sound or speech was listened to; the TTS log lines above are engine
@@ -1208,7 +1358,185 @@ Supporting documents:
   device" is argued from the code path rather than photographed on a themed device.
 - **RTL layouts.** `android:supportsRtl="true"` is still declared, but no screen was captured
   with an RTL locale.
-- **The Cashbook / Upcoming / Settings populated states.** These three screens were empty on
-  the seeded device, so their captured frames show the empty and default states; the populated
-  reminder and cashbook rows are covered by the runtime evidence already recorded in §9.4
-  rather than by a new screenshot.
+- **Debit amount rendering in orange `#F65026` on a live History row.** The parser rejected all
+  debit SMS messages sent during this pass (`below_minimum` or `no_match`), so no debit row
+  appeared in History. The debit colour *path* is verified (debit avatar tint `#FEEAE5` probes
+  correctly), but a direct debit-amount sample was not obtained. A matching debit SMS would
+  need to satisfy an existing parser rule.
+- **Night `history-semantic.png` is identical to night `history.png`** (same SHA-256
+  `19a931d8…`) because both captured the same single-credit transaction screen. The label is
+  misleading — it should be renamed to `history-night.png` in a future pass.
+
+### 12.7 Settings sound functional pass
+
+This appended subsection records the functional sound pass. Detection, parsing, deduplication, the
+payment database, and the Money received / Money sent settings were not changed by this pass.
+
+#### Asset verification
+
+The requested source asset was present, so the pass continued without substituting a generated
+tone:
+
+```
+$ ls -la kaching-sound-effect.mp3 app/src/main/res/raw/kaching.mp3
+-rw-r--r--@  1 mamanjonpal  staff  101982 Oct 15 21:13 kaching-sound-effect.mp3
+-rw-r--r--@  1 mamanjonpal  staff  101982 Oct 16 01:03 app/src/main/res/raw/kaching.mp3
+
+$ file kaching-sound-effect.mp3
+kaching-sound-effect.mp3: MPEG ADTS, layer III, v1, 256 kbps, 44.1 kHz, JntStereo
+
+$ /usr/bin/afinfo kaching-sound-effect.mp3
+File type ID:       MPG3
+Num Tracks:         1
+Data format:        2 ch,  44100 Hz, .mp3
+estimated duration: 3.186937 sec
+audio bytes:        101982
+audio packets:      122
+bit rate:           256000 bits per second
+
+$ shasum -a 256 kaching-sound-effect.mp3
+08ba6361aae001c237a74e71109aa26bda2fbd4b029d9d1040689179e7dc1cb1  kaching-sound-effect.mp3
+```
+
+The macOS download metadata identified the provenance as a Pixabay download URL for
+`modestas123123-cash-register-kaching-sound-effect-125042.mp3`; the file also had Chrome
+quarantine metadata. The file was copied unchanged to `app/src/main/res/raw/kaching.mp3`.
+
+#### Code and unit-test evidence
+
+`TtsEngine` now caches `MediaPlayer.create(appContext, R.raw.kaching)`, applies the saved level
+with `MediaPlayer.setVolume(left, right)`, uses the single sound worker's FIFO queue for overlap,
+and releases the player in `shutdown()`. `CHIME_AND_SPEECH` submits speech from the MediaPlayer
+completion callback. If loading or starting the chime fails, the voice path is submitted
+immediately and the failure is logged under `PayAlertSound`. Every sound transition includes
+`preview=true` or `preview=false`.
+
+The chip callback persists only the selected sound mode and calls `TtsEngine.preview(context,
+mode)` on the sound worker. The preview path does not call the payment pipeline and does not
+write `payment_events`, `dedup_index`, or either direction toggle.
+
+Command actually run:
+
+```
+$ ./gradlew :app:testDebugUnitTest --rerun-tasks
+BUILD SUCCESSFUL
+```
+
+The resulting XMLs report 99 tests, 0 failures, 0 errors. `SoundPlaybackTest` is a JVM test
+class with four test methods and eight assertions covering `decidePlayback(mode, vibrate)` for
+all four modes with the vibration toggle off and on.
+
+#### Runtime environment and capture command
+
+The debug APK was installed on the connected Android 14 / API 34 emulator (`emulator-5554`).
+For each payment capture, the mode was selected in Settings, the log buffer was cleared, and an
+SMS was sent with `adb emu sms send HDFCBK ...`. The captures were filtered from logcat with:
+
+```
+adb logcat -v threadtime -d -s PayAlert:I PayAlertSound:I GoogleTTSServiceImpl:I '*:S'
+```
+
+The raw files are retained under `evidence/sound/`.
+
+#### Four SMS-payment mode captures
+
+Voice only (`evidence/sound/payment-voice-only.log`):
+
+```
+10-16 01:24:16.620  6687  6957 I PayAlertSound: transition=decision mode=SPEECH preview=false chime=false speak=true vibrate=false
+10-16 01:24:16.620  6687  6957 I PayAlertSound: transition=vibration_skipped mode=SPEECH preview=false enabled=false
+10-16 01:24:16.620  6687  6957 I PayAlertSound: transition=speech_requested mode=SPEECH preview=false reason=mode
+10-16 01:24:16.736  6687  6957 I PayAlertSound: transition=speech_queued mode=SPEECH preview=false
+10-16 01:24:16.736 13160  6958 I GoogleTTSServiceImpl: Synthesis request for locale eng-IND and name en-IN-language
+```
+
+Chime then voice (`evidence/sound/payment-chime-then-voice.log`):
+
+```
+10-16 01:22:08.006  6687  6957 I PayAlertSound: transition=decision mode=CHIME_AND_SPEECH preview=false chime=true speak=true vibrate=true
+10-16 01:22:08.008  6687  6957 I PayAlertSound: transition=vibration_started mode=CHIME_AND_SPEECH preview=false
+10-16 01:22:08.008  6687  6957 I PayAlertSound: transition=chime_queued mode=CHIME_AND_SPEECH preview=false queueDepth=1
+10-16 01:22:08.019  6687  6957 I PayAlertSound: transition=chime_started mode=CHIME_AND_SPEECH preview=false volume=1.0
+10-16 01:22:11.242  6687  6957 I PayAlertSound: transition=chime_completed mode=CHIME_AND_SPEECH preview=false
+10-16 01:22:11.242  6687  6957 I PayAlertSound: transition=speech_requested mode=CHIME_AND_SPEECH preview=false reason=after_chime
+10-16 01:22:11.354  6687  6957 I PayAlertSound: transition=speech_queued mode=CHIME_AND_SPEECH preview=false
+10-16 01:22:11.355 13160  6958 I GoogleTTSServiceImpl: Synthesis request for locale eng-IND and name en-IN-language
+```
+
+Chime only (`evidence/sound/payment-chime-only.log`):
+
+```
+10-16 01:23:36.445  6687  6957 I PayAlertSound: transition=decision mode=CHIME_ONLY preview=false chime=true speak=false vibrate=true
+10-16 01:23:36.446  6687  6957 I PayAlertSound: transition=vibration_started mode=CHIME_ONLY preview=false
+10-16 01:23:36.446  6687  6957 I PayAlertSound: transition=chime_queued mode=CHIME_ONLY preview=false queueDepth=1
+10-16 01:23:36.455  6687  6957 I PayAlertSound: transition=chime_started mode=CHIME_ONLY preview=false volume=1.0
+10-16 01:23:39.675  6687  6957 I PayAlertSound: transition=chime_completed mode=CHIME_ONLY preview=false
+```
+
+Silent (`evidence/sound/payment-silent.log`):
+
+```
+10-16 01:25:01.464  6687  6957 I PayAlertSound: transition=decision mode=SILENT preview=false chime=false speak=false vibrate=true
+10-16 01:25:01.465  6687  6957 I PayAlertSound: transition=vibration_started mode=SILENT preview=false
+10-16 01:25:01.465  6687  6957 I PayAlertSound: transition=silent mode=SILENT preview=false
+```
+
+#### Four preview captures
+
+Each file below was captured after tapping the named Sound chip. All four contain
+`preview=true`; the silent capture has no chime or speech transition, and the chime-then-voice
+capture shows completion before speech:
+
+```
+evidence/sound/preview-voice-only.log
+10-16 01:15:36.127  6687  6957 I PayAlertSound: transition=preview_requested mode=SPEECH preview=true context=com.vivekray898.payalert
+10-16 01:15:36.127  6687  6957 I PayAlertSound: transition=decision mode=SPEECH preview=true chime=false speak=true vibrate=false
+10-16 01:15:36.127  6687  6957 I PayAlertSound: transition=speech_requested mode=SPEECH preview=true reason=mode
+10-16 01:15:36.242  6687  6957 I PayAlertSound: transition=speech_queued mode=SPEECH preview=true
+
+evidence/sound/preview-chime-then-voice.log
+10-16 01:15:15.736  6687  6957 I PayAlertSound: transition=preview_requested mode=CHIME_AND_SPEECH preview=true context=com.vivekray898.payalert
+10-16 01:15:15.750  6687  6957 I PayAlertSound: transition=chime_started mode=CHIME_AND_SPEECH preview=true volume=1.0
+10-16 01:15:19.043  6687  6957 I PayAlertSound: transition=chime_completed mode=CHIME_AND_SPEECH preview=true
+10-16 01:15:19.043  6687  6957 I PayAlertSound: transition=speech_requested mode=CHIME_AND_SPEECH preview=true reason=after_chime
+10-16 01:15:19.185  6687  6957 I PayAlertSound: transition=speech_queued mode=CHIME_AND_SPEECH preview=true
+
+evidence/sound/preview-chime-only.log
+10-16 01:15:25.835  6687  6957 I PayAlertSound: transition=preview_requested mode=CHIME_ONLY preview=true context=com.vivekray898.payalert
+10-16 01:15:25.843  6687  6957 I PayAlertSound: transition=chime_started mode=CHIME_ONLY preview=true volume=1.0
+10-16 01:15:29.082  6687  6957 I PayAlertSound: transition=chime_completed mode=CHIME_ONLY preview=true
+
+evidence/sound/preview-silent.log
+10-16 01:16:51.713  6687  6957 I PayAlertSound: transition=preview_requested mode=SILENT preview=true context=com.vivekray898.payalert
+10-16 01:16:51.713  6687  6957 I PayAlertSound: transition=decision mode=SILENT preview=true chime=false speak=false vibrate=true
+10-16 01:16:51.714  6687  6957 I PayAlertSound: transition=silent mode=SILENT preview=true
+```
+
+#### Two-payment overlap capture
+
+The two SMS commands were launched 500 ms apart while `CHIME_AND_SPEECH` was selected. The raw
+capture is `evidence/sound/overlap-500ms.log`:
+
+```
+10-16 01:25:41.987  6687  6957 I PayAlertSound: transition=decision mode=CHIME_AND_SPEECH preview=false chime=true speak=true vibrate=true
+10-16 01:25:41.989  6687  6957 I PayAlertSound: transition=chime_started mode=CHIME_AND_SPEECH preview=false volume=1.0
+10-16 01:25:42.475  6687  6957 I PayAlertSound: transition=decision mode=CHIME_AND_SPEECH preview=false chime=true speak=true vibrate=true
+10-16 01:25:42.476  6687  6957 I PayAlertSound: transition=chime_queued mode=CHIME_AND_SPEECH preview=false queueDepth=1
+10-16 01:25:45.252  6687  6957 I PayAlertSound: transition=chime_completed mode=CHIME_AND_SPEECH preview=false
+10-16 01:25:45.372  6687  6957 I PayAlertSound: transition=chime_started mode=CHIME_AND_SPEECH preview=false volume=1.0
+10-16 01:25:48.651  6687  6957 I PayAlertSound: transition=chime_completed mode=CHIME_AND_SPEECH preview=false
+```
+
+This is the documented FIFO policy: the second chime is queued and starts after the first
+completion; it is not interrupted and restarted.
+
+#### Screenshot and remaining verification
+
+No Settings screenshot was recaptured because the chip layout and visual styling did not change;
+the change is the chip's functional callback and background preview work.
+
+The emulator logcat proves the requested mode transitions, preview isolation, volume application
+transition, cached resource load, completion chaining, and overlap queue. Audibility cannot be
+confirmed by me and needs a check by ear. Physical vibration also needs a check by feel on a
+device with haptics. Speech rate, pitch, and end-to-end sound level perception remain outside
+this capture set.

@@ -1,0 +1,6 @@
+--------- beginning of main
+10-16 01:25:01.464  6687  6957 I PayAlertSound: transition=decision mode=SILENT preview=false chime=false speak=false vibrate=true
+10-16 01:25:01.465  6687  6957 I PayAlertSound: transition=vibration_started mode=SILENT preview=false
+10-16 01:25:01.465  6687  6957 I PayAlertSound: transition=silent mode=SILENT preview=false
+10-16 01:25:01.717  6687  7672 I PayAlert: Notification pipeline result: no_match
+10-16 01:25:02.838  6687  7672 I PayAlert: Notification pipeline result: duplicate
