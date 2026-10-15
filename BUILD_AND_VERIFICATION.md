@@ -1021,3 +1021,194 @@ predicate on the JVM.
   PayAlert's own constants; the reference exposes no readable equivalent beyond the
   behaviour rebuilt here.
 - **SMS path.** Not re-run in this pass; §9.4.5 still stands for it on its own.
+
+---
+
+# 11. UI/UX rebrand
+
+Scope of this pass: the visual layer only — `ui/` plus `res/`. No detection, parsing, dedup,
+storage, sync or TTS code was touched. The palette is derived from the launcher icon and the
+defects listed in the brief were fixed screen by screen.
+
+## 11.1 Build
+
+```
+$ cd payalert && ./gradlew clean :app:assembleDebug
+> Task :app:compileDebugJavaWithJavac NO-SOURCE
+> Task :app:processDebugJavaRes
+> Task :app:mergeDebugJavaResource
+> Task :app:dexBuilderDebug
+> Task :app:mergeProjectDexDebug
+> Task :app:packageDebug
+> Task :app:createDebugApkListingFileRedirect
+> Task :app:assembleDebug
+
+BUILD SUCCESSFUL in 7s
+38 actionable tasks: 26 executed, 12 from cache
+```
+
+APK produced: `app/build/outputs/apk/debug/app-debug.apk`, 12,767,737 bytes.
+
+## 11.2 Unit tests
+
+```
+$ cd payalert && ./gradlew :app:testDebugUnitTest --rerun-tasks
+> Task :app:compileDebugUnitTestKotlin
+> Task :app:compileDebugUnitTestJavaWithJavac NO-SOURCE
+> Task :app:processDebugUnitTestJavaRes
+> Task :app:testDebugUnitTest
+
+BUILD SUCCESSFUL in 7s
+26 actionable tasks: 26 executed
+```
+
+Counted from this run's result XMLs (`--rerun-tasks`, so nothing came from cache):
+
+```
+TOTAL tests=95 failures/errors=0 skipped=0 suites=12
+  com.vivekray898.payalert.analytics.AnalyticsCalculatorTest  tests=7
+  com.vivekray898.payalert.cashbook.CashbookReportCalculatorTest  tests=4
+  com.vivekray898.payalert.export.TransactionExporterTest  tests=5
+  com.vivekray898.payalert.health.ReviewPromptPolicyTest  tests=6
+  com.vivekray898.payalert.health.ServiceHealthEvaluatorTest  tests=8
+  com.vivekray898.payalert.parsers.DedupKeyBuilderTest  tests=20
+  com.vivekray898.payalert.parsers.ParserConfigTest  tests=6
+  com.vivekray898.payalert.parsers.ParserRegistryTest  tests=19
+  com.vivekray898.payalert.pipeline.PaymentPipelineTest  tests=6
+  com.vivekray898.payalert.settings.AnnouncementFormatterTest  tests=4
+  com.vivekray898.payalert.upi.QrPayloadTest  tests=4
+  com.vivekray898.payalert.upi.UpiLinkTest  tests=6
+```
+
+95 tests, 0 failures, 0 errors, 0 skipped — unchanged from the previous pass, which is the
+expected result for a change confined to `ui/` and `res/`.
+
+## 11.3 Screenshot commands
+
+Device: `Pixel_8_Pro` AVD, Android 14 (API 34), 1344×2992 @ 480 dpi. The icons and the
+six screens were driven with `adb shell input tap` at coordinates read back from
+`uiautomator dump` — never guessed:
+
+```
+# bottom-nav item bounds, read from the accessibility tree
+[73,2824][176,2872]     Home
+[333,2824][462,2872]    History
+[584,2824][758,2872]    Cashbook
+[857,2824][1033,2872]   Upcoming
+[1146,2824][1292,2872]  Settings
+
+# one screen, end to end (this is the loop /tmp/payalert/capture.sh runs)
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb shell am force-stop com.vivekray898.payalert
+adb shell am start -n com.vivekray898.payalert/.ui.MainActivity   # repairs the monitor,
+sleep 5                                                          #   raising the notice
+adb shell input keyevent KEYCODE_HOME
+adb shell am start -n com.vivekray898.payalert/.ui.MainActivity   # nothing to repair now
+sleep 3
+adb shell input tap 397 2848                                      # the History tab
+sleep 3
+adb exec-out screencap -p > screenshots/after/history.png
+adb shell uiautomator dump /sdcard/ui.xml
+adb shell cat /sdcard/ui.xml > /tmp/payalert/ui_day_history.xml
+
+# day pass
+adb shell cmd uimode night no
+# night pass
+adb shell cmd uimode night yes
+```
+
+The two `am start` calls matter: the first startup repairs the monitor and raises the
+transient *"Detection repaired on launch"* notice, the second finds nothing to repair so the
+notice clears and the screen is photographed clean. Analytics is an overlay rather than a
+tab, so it is opened by tapping the chart action in the History app bar; that action's
+coordinates were themselves read from the History dump (`[936,211][1008,283]` →
+tap `972 247`).
+
+Data in the frames is real, not mocked: it came from twelve bank SMS messages delivered with
+`adb emu sms send`, picked up by the SMS receiver and by the Messages app's notification, which
+also proves the cross-detector dedup still works on this build —
+
+```
+I PayAlert: TTS utterance: Payment received. 3,500.00 from rahul@okhdfcbank.
+I PayAlert: Notification pipeline result: duplicate      <-- the second sighting of it
+I PayAlert: TTS utterance: Payment sent. 499.00 to swiggy@ybl.
+I PayAlert: Notification pipeline result: duplicate
+```
+
+which is why Home's `Stored payments` reads `8` while twelve messages were delivered
+(two of the twelve were identical repeats of a message that was already stored, and the
+Messages-app copy of every message is suppressed as a duplicate of the SMS-receiver copy).
+
+## 11.4 Files
+
+```
+$ cd payalert && ls -l screenshots/after screenshots/after/night
+screenshots/after/analytics.png               228089
+screenshots/after/cashbook.png                138395
+screenshots/after/history.png                 267082
+screenshots/after/home.png                    228785
+screenshots/after/settings.png                232592
+screenshots/after/upcoming.png                111505
+screenshots/after/night/analytics.png         225861
+screenshots/after/night/cashbook.png          140355
+screenshots/after/night/history.png           267446
+screenshots/after/night/home.png              225794
+screenshots/after/night/settings.png          225455
+screenshots/after/night/upcoming.png          111429
+```
+
+Every file is non-zero and 1344×2992. Day frames measure a mean luminance of 223–230, night
+frames 32–38, which is how the night column is shown to be a real dark-scheme capture rather
+than a repeat of the light one.
+
+| Frame | What it proves |
+|---|---|
+| `after/home.png` | Teal `In` / orange `Out` chips, a `headlineSmall` navy `Net`, six icon-led detection rows coloured by state, a filled `Transactions` + outlined `Payment QR`, and recent payments with a leading direction avatar and the merchant rendered exactly as stored (`jiorecharge@ybl`, `ACME PVT LTD`) |
+| `after/history.png` | `In`/`Out`/`Items` stat chips, a search field with a leading glyph and trailing clear action, `DIRECTION`/`RANGE`/`ACCOUNT` chip groups on separate labelled rows, the app bar carrying `Analytics` / `Export history` / `Clear filters`, and rows reading `via SMS · HDFC Bank` rather than `notification` |
+| `after/analytics.png` | The four range chips on one line in a scroll row, the summary card, spending-by-category bars, a populated `Top payees`, the single-day header `Today`, and the tonal right-aligned `Share summary (CSV)` that is no longer full width |
+| `after/cashbook.png` | `Balance` over `₹0.00` in `displaySmall`, `In`/`Out`/`Entries` chips, filled `+ Add entry` beside outlined `Report`, `More actions` in the app bar, and an icon-led empty state with `+ Add your first entry` |
+| `after/upcoming.png` | `To pay` / `To receive` chips, a single filled `+ Add reminder`, an icon-led empty state, and no `Re-arm alarms` on the surface — the a11y dump of this frame contains `Add reminder` only |
+| `after/settings.png` | One consistent card header style, the three sound-mode chips on a single row, permission values teal when granted and orange when not, and secondary actions rendered as outlined buttons |
+| the six `after/night/*.png` | The same six screens under `cmd uimode night yes`: dark page background `rgb(16,19,28)`, dark card surface `rgb(23,27,36)`, brightened navy primary `rgb(111,104,168)`, dark-teal nav indicator `rgb(3,71,61)` |
+
+Supporting documents:
+
+- `screenshots/PALETTE.md` — the extraction command, its output, the four hex values, the
+  semantic mapping and the night variants.
+- `screenshots/COMPARISON.md` — per-screen defect → change table with the frames embedded.
+- `FEATURE_MATRIX.md` §7 (UI/UX, six screens + bottom navigation) and §8 (Theme, palette
+  source and the dynamic-colour decision).
+
+## 11.5 Changes made in this pass
+
+| File | Change |
+|---|---|
+| `ui/theme/Theme.kt` | `Brand` constants reset to the measured icon values (`#122550` / `#F65026` / `#058E7A` / `#FE8D13`); light and dark schemes rebuilt from them; dynamic colour left off |
+| `res/values/colors.xml`, `res/values-night/colors.xml` | Platform colours (status bar, window background) realigned to the icon palette; night set hand-tuned |
+| `res/drawable/ic_*.xml` | 19 Material vector icons added (5 navigation + 14 UI, the 14th being `ic_volume_up` for the Voice section); the earlier stroke-only scratch icons removed |
+| `ui/PayAlertApp.kt` | `NavigationBar` items now carry an icon plus a single label, with a teal-derived indicator; the detection notice moved to the bottom of the content area and the content area reserves room for it, so it can no longer cover a screen's app bar |
+| `ui/nav/Routes.kt` | The two-letter abbreviation field removed; the transactions tab is labelled `History` |
+| `ui/components/Common.kt` | `StatChip` added; `SearchField` gained a leading glyph and a trailing clear button; `EmptyState` gained a drawn icon, a drawn action and a tint; `ValueRow` gained a value colour; the three shared status colours added |
+| `ui/SourceLabel.kt` | New: maps the raw detector string and sender id to `via SMS · HDFC Bank` / `via PhonePe` |
+| `ui/home/HomeScreen.kt` | Stat chips, icon-led detection rows with semantic colours, ranked actions, merchant rendered as stored |
+| `ui/transactions/TransactionsScreen.kt` | Rewritten around a top app bar (`Analytics` / `Export history` / `Clear filters`), grouped chip rows, stat chips and a direction avatar per row |
+| `ui/analytics/AnalyticsScreen.kt` | Scrollable range chips, stat chips, explicit empty states, `Today` header, tonal right-aligned export |
+| `ui/cashbook/CashbookScreen.kt` | Prominent centred balance, chip summary, icon-bearing ranked buttons, app-bar overflow, icon-led empty state |
+| `ui/passbook/PassbookScreen.kt` | Stat chips, `Re-arm alarms` moved to the overflow, icon-led rows with an outlined `Mark paid`, icon-led empty state |
+| `ui/settings/SettingsScreen.kt` | Sound chips on one scroll row, state-coloured permission values, secondary actions demoted to outlined |
+
+## 11.6 Not verified in this pass
+
+- **Anything audible.** No sound or speech was listened to; the TTS log lines above are engine
+  acceptances, not audibility checks.
+- **A physical device.** All evidence is from the `Pixel_8_Pro` AVD. Font metrics, display
+  cutouts and gesture-nav insets were not exercised on real hardware.
+- **Dynamic-colour devices with a non-default wallpaper.** Dynamic colour is off by code
+  inspection, and the AVD has a default wallpaper, so "the brand palette survives a themed
+  device" is argued from the code path rather than photographed on a themed device.
+- **RTL layouts.** `android:supportsRtl="true"` is still declared, but no screen was captured
+  with an RTL locale.
+- **The Cashbook / Upcoming / Settings populated states.** These three screens were empty on
+  the seeded device, so their captured frames show the empty and default states; the populated
+  reminder and cashbook rows are covered by the runtime evidence already recorded in §9.4
+  rather than by a new screenshot.

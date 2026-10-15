@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Compose draws the whole UI; the platform theme only needs to be a valid,
-         no-action-bar parent so no design-library dependency is required. -->
+    <!-- Compose draws the whole UI. The platform theme only needs to be a valid,
+         no-action-bar parent so no design-library dependency is required.
+         The brand palette lives in android:statusBarColor; windowBackground is the
+         off-white surface so the launch flash is on-brand. -->
     <style name="Theme.PayAlert" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:statusBarColor">@color/payalert_primary</item>
-        <item name="android:windowBackground">#FFF7F9FA</item>
+        <item name="android:windowBackground">@color/payalert_background</item>
     </style>
 </resources>

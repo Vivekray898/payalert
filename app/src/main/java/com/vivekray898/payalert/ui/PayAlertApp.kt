@@ -8,8 +8,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -21,7 +23,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import com.vivekray898.payalert.R
 import com.vivekray898.payalert.ui.analytics.AnalyticsScreen
 import com.vivekray898.payalert.ui.backup.BackupScreen
 import com.vivekray898.payalert.ui.cashbook.CashbookScreen
@@ -68,8 +72,22 @@ fun PayAlertApp(
                             close()
                             tabIndex = position
                         },
-                        icon = { Text(tab.short) },
-                        label = { Text(tab.label) }
+                        icon = {
+                            Icon(
+                                painter = painterResource(id = tabIcon(tab)),
+                                contentDescription = null
+                            )
+                        },
+                        label = { Text(tab.label) },
+                        // The indicator and the selected label both derive from the icon's
+                        // teal, so the pill never reads as an unrelated pale green.
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = MaterialTheme.colorScheme.tertiary,
+                            selectedTextColor = MaterialTheme.colorScheme.tertiary,
+                            indicatorColor = MaterialTheme.colorScheme.tertiaryContainer,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     )
                 }
             }
@@ -81,6 +99,9 @@ fun PayAlertApp(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                // Reserve room for the detection notice so it never hides the last card on
+                // a screen (or the export action at the foot of Analytics).
+                .padding(bottom = if (healthNotice != null) 72.dp else 0.dp)
         ) {
             when (Tab.all[tabIndex]) {
                 Tab.HOME -> HomeScreen(
@@ -112,11 +133,13 @@ fun PayAlertApp(
             }
 
             // Drawn last so a degraded-detection notice is visible over every tab and
-            // every secondary screen, not just the one that happened to be open.
+            // every secondary screen, not just the one that happened to be open. Anchored to
+            // the bottom of the content area so it can never cover a screen's top app bar
+            // (which is where History keeps Analytics / Export / Clear filters).
             healthNotice?.let { notice ->
                 Surface(
                     modifier = Modifier
-                        .align(Alignment.TopCenter)
+                        .align(Alignment.BottomCenter)
                         .fillMaxWidth(),
                     color = MaterialTheme.colorScheme.errorContainer
                 ) {
@@ -141,6 +164,15 @@ fun PayAlertApp(
             }
         }
     }
+}
+
+/** Maps a tab to its icon. Kept here so the nav enum stays free of Android resource ids. */
+private fun tabIcon(tab: Tab): Int = when (tab) {
+    Tab.HOME -> R.drawable.ic_home
+    Tab.TRANSACTIONS -> R.drawable.ic_history
+    Tab.CASHBOOK -> R.drawable.ic_cashbook
+    Tab.PASSBOOK -> R.drawable.ic_upcoming
+    Tab.SETTINGS -> R.drawable.ic_settings
 }
 
 /** Overlay values must survive process recreation, so they are stored by name. */

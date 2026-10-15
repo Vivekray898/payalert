@@ -1,13 +1,17 @@
 package com.vivekray898.payalert.ui.cashbook
 
 import android.app.DatePickerDialog
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -16,11 +20,20 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -30,18 +43,24 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.vivekray898.payalert.R
 import com.vivekray898.payalert.data.CashbookEntry
 import com.vivekray898.payalert.export.TransactionExporter
+import com.vivekray898.payalert.ui.components.EmptyState
 import com.vivekray898.payalert.ui.components.ExportShare
+import com.vivekray898.payalert.ui.components.StatChip
 import com.vivekray898.payalert.ui.components.ValueRow
 import com.vivekray898.payalert.ui.formatAmount
 import com.vivekray898.payalert.ui.formatTimestamp
 import java.util.Calendar
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CashbookScreen(viewModel: CashbookViewModel = viewModel()) {
     val entries by viewModel.entries.collectAsState()
@@ -53,102 +72,191 @@ fun CashbookScreen(viewModel: CashbookViewModel = viewModel()) {
 
     var editorTarget by remember { mutableStateOf<EditorTarget?>(null) }
     var showReport by remember { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text(
-            text = "Cashbook",
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.primary
-        )
-        Text(
-            text = "Balance: ${formatAmount(report.net)}",
-            style = MaterialTheme.typography.bodyMedium
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("In: ${formatAmount(report.totalIn)}", color = MaterialTheme.colorScheme.primary)
-            Text("Out: ${formatAmount(report.totalOut)}", color = MaterialTheme.colorScheme.error)
-            Text("${report.entryCount} entries", style = MaterialTheme.typography.bodySmall)
+    fun export() {
+        viewModel.snapshot { rows ->
+            ExportShare.share(
+                context,
+                "payalert-cashbook.csv",
+                "text/csv",
+                TransactionExporter.cashbookToCsv(rows)
+            )
         }
+    }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            CashbookRange.entries.forEach { preset ->
-                FilterChip(
-                    selected = range == preset,
-                    onClick = { viewModel.setRange(preset) },
-                    label = { Text(preset.label) }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Cashbook") },
+                actions = {
+                    Box {
+                        IconButton(onClick = { menuOpen = true }) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_more_vert),
+                                contentDescription = "More actions"
+                            )
+                        }
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Export CSV") },
+                                onClick = {
+                                    menuOpen = false
+                                    export()
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_export),
+                                        contentDescription = null
+                                    )
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Report") },
+                                onClick = {
+                                    menuOpen = false
+                                    showReport = true
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_chart),
+                                        contentDescription = null
+                                    )
+                                }
+                            )
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
                 )
-            }
+            )
         }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Balance is the headline figure on this screen.
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Balance",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "\u20B9" + formatAmount(report.net),
+                    style = MaterialTheme.typography.displaySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    textAlign = TextAlign.Center
+                )
+                Row(
+                    modifier = Modifier.padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    StatChip("In", formatAmount(report.totalIn), MaterialTheme.colorScheme.tertiary)
+                    StatChip("Out", formatAmount(report.totalOut), MaterialTheme.colorScheme.secondary)
+                    StatChip(
+                        "Entries",
+                        report.entryCount.toString(),
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
 
-        if (categories.isNotEmpty()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                FilterChip(
-                    selected = category == null,
-                    onClick = { viewModel.setCategory(null) },
-                    label = { Text("All categories") }
-                )
-                categories.forEach { value ->
+                CashbookRange.entries.forEach { preset ->
                     FilterChip(
-                        selected = category == value,
-                        onClick = { viewModel.setCategory(value) },
-                        label = { Text(value) }
+                        selected = range == preset,
+                        onClick = { viewModel.setRange(preset) },
+                        label = { Text(preset.label) }
                     )
                 }
             }
-        }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(
-                onClick = { editorTarget = EditorTarget(null) },
-                modifier = Modifier.weight(1f)
-            ) { Text("Add entry") }
-            Button(onClick = { showReport = true }, modifier = Modifier.weight(1f)) {
-                Text("Report")
-            }
-            TextButton(onClick = {
-                viewModel.snapshot { rows ->
-                    ExportShare.share(
-                        context,
-                        "payalert-cashbook.csv",
-                        "text/csv",
-                        TransactionExporter.cashbookToCsv(rows)
+            if (categories.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = category == null,
+                        onClick = { viewModel.setCategory(null) },
+                        label = { Text("All categories") }
                     )
+                    categories.forEach { value ->
+                        FilterChip(
+                            selected = category == value,
+                            onClick = { viewModel.setCategory(value) },
+                            label = { Text(value) }
+                        )
+                    }
                 }
-            }) { Text("Export") }
-        }
+            }
 
-        if (entries.isEmpty()) {
-            Text(
-                text = "No cashbook entries in this range yet.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.secondary
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(entries, key = { it.id }) { entry ->
-                    CashbookRow(
-                        entry = entry,
-                        onEdit = { editorTarget = EditorTarget(entry) },
-                        onDelete = { viewModel.delete(entry.id) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { editorTarget = EditorTarget(null) },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_add),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
                     )
+                    Text("  Add entry")
+                }
+                OutlinedButton(
+                    onClick = { showReport = true },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_chart),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text("  Report")
+                }
+            }
+
+            if (entries.isEmpty()) {
+                EmptyState(
+                    icon = R.drawable.ic_receipt,
+                    title = "No cashbook entries",
+                    description = "Cash entries you add yourself live here, alongside anything detected automatically.",
+                    action = {
+                        Button(onClick = { editorTarget = EditorTarget(null) }) {
+                            Text("+ Add your first entry")
+                        }
+                    }
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(entries, key = { it.id }) { entry ->
+                        CashbookRow(
+                            entry = entry,
+                            onEdit = { editorTarget = EditorTarget(entry) },
+                            onDelete = { viewModel.delete(entry.id) }
+                        )
+                    }
                 }
             }
         }
@@ -180,7 +288,7 @@ fun CashbookScreen(viewModel: CashbookViewModel = viewModel()) {
                         Text(
                             "No entries in this range.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.secondary
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     report.byCategory.forEach { row ->
@@ -203,9 +311,13 @@ private fun CashbookRow(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val credit = entry.kind == "credit"
+    val accent = if (credit) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.secondary
+
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
             modifier = Modifier
@@ -226,18 +338,14 @@ private fun CashbookRow(
                         entry.note?.let { append(" · $it") }
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.secondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    text = (if (entry.kind == "credit") "+" else "-") + formatAmount(entry.amount),
+                    text = (if (credit) "+" else "\u2212") + formatAmount(entry.amount),
                     style = MaterialTheme.typography.titleMedium,
-                    color = if (entry.kind == "credit") {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.error
-                    }
+                    color = accent
                 )
                 Row {
                     TextButton(onClick = onEdit) { Text("Edit") }

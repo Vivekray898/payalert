@@ -21,7 +21,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -33,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -41,9 +44,12 @@ import com.vivekray898.payalert.services.PaymentMonitorService
 import com.vivekray898.payalert.settings.AnnouncementFormatter
 import com.vivekray898.payalert.settings.AppSettings
 import com.vivekray898.payalert.settings.SoundMode
+import com.vivekray898.payalert.R
 import com.vivekray898.payalert.ui.PermissionStatus
 import com.vivekray898.payalert.ui.components.SectionCard
 import com.vivekray898.payalert.ui.components.SliderRow
+import com.vivekray898.payalert.ui.components.StatusOkColor
+import com.vivekray898.payalert.ui.components.StatusWarnColor
 import com.vivekray898.payalert.ui.components.SwitchRow
 import com.vivekray898.payalert.ui.components.ValueRow
 
@@ -78,7 +84,11 @@ fun SettingsScreen(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+            .padding(16.dp)
+            // The Scaffold's bottom bar occupies the bottom ~96 dp of the content
+            // area. Without this the last interactive row (Reset all settings) sits
+            // underneath the bar and is not tappable.
+            .padding(bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(
@@ -109,13 +119,22 @@ fun SettingsScreen(
                 checked = settings.detectNotifications,
                 onCheckedChange = graph.settings::setDetectNotifications
             )
+            // A numeric field must never rely on a placeholder to say what it is: the
+            // placeholder disappears the moment a digit is typed. The label sits above the
+            // field and the hint below it, so both stay on screen while the value is shown.
+            Text(
+                text = "Ignore amounts below (\u20B9)",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 4.dp)
+            )
             OutlinedTextField(
                 value = minimumAmountText,
                 onValueChange = {
                     minimumAmountText = it
                     graph.settings.setMinimumAmount(it.toDoubleOrNull() ?: 0.0)
                 },
-                label = { Text("Ignore amounts below") },
+                supportingText = { Text("Payments under this amount are not announced") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.fillMaxWidth()
@@ -125,6 +144,8 @@ fun SettingsScreen(
                 value = settings.dedupWindowMinutes.toFloat(),
                 valueRange = 1f..30f,
                 valueText = "${settings.dedupWindowMinutes} min",
+                rangeStartLabel = "1 min",
+                rangeEndLabel = "30 min",
                 onValueChange = { graph.settings.setDedupWindowMinutes(it.toInt().coerceAtLeast(1)) }
             )
             Text(
@@ -149,12 +170,20 @@ fun SettingsScreen(
         }
 
         SectionCard(title = "Sound") {
-            SoundMode.labels.forEach { (mode, label) ->
-                FilterChip(
-                    selected = settings.soundMode == mode,
-                    onClick = { graph.settings.setSoundMode(mode) },
-                    label = { Text(label) }
-                )
+            // A scroll row keeps the mode chips on one line at any font size.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SoundMode.labels.forEach { (mode, label) ->
+                    FilterChip(
+                        selected = settings.soundMode == mode,
+                        onClick = { graph.settings.setSoundMode(mode) },
+                        label = { Text(label) }
+                    )
+                }
             }
             SwitchRow(
                 label = "Vibrate with the announcement",
@@ -165,7 +194,7 @@ fun SettingsScreen(
 
         SectionCard(title = "Voice") {
             ValueRow("Language", languageLabel(settings.languageTag))
-            Button(
+            OutlinedButton(
                 onClick = { showLanguageDialog = true },
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Change language") }
@@ -190,10 +219,16 @@ fun SettingsScreen(
                 valueText = String.format("%.2f", settings.volume),
                 onValueChange = graph.settings::setVolume
             )
-            Button(
+            OutlinedButton(
                 onClick = { graph.tts.speak("This is how payments will sound.") },
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("Test the voice") }
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_volume_up),
+                    contentDescription = null
+                )
+                Text("  Test the voice")
+            }
         }
 
         SectionCard(title = "Announcement format") {
@@ -246,21 +281,26 @@ fun SettingsScreen(
         }
 
         SectionCard(title = "Permissions") {
+            // Green when the capability is in place, orange when the user still has to act.
             ValueRow(
                 "SMS",
-                if (PermissionStatus.hasReceiveSms(context)) "Granted" else "Not granted"
+                if (PermissionStatus.hasReceiveSms(context)) "Granted" else "Not granted",
+                if (PermissionStatus.hasReceiveSms(context)) StatusOkColor else StatusWarnColor
             )
             ValueRow(
                 "Notification access",
-                if (PermissionStatus.hasNotificationAccess(context)) "Granted" else "Not granted"
+                if (PermissionStatus.hasNotificationAccess(context)) "Granted" else "Not granted",
+                if (PermissionStatus.hasNotificationAccess(context)) StatusOkColor else StatusWarnColor
             )
             ValueRow(
                 "Notifications",
-                if (PermissionStatus.hasPostNotifications(context)) "Granted" else "Not granted"
+                if (PermissionStatus.hasPostNotifications(context)) "Granted" else "Not granted",
+                if (PermissionStatus.hasPostNotifications(context)) StatusOkColor else StatusWarnColor
             )
             ValueRow(
                 "Battery optimisation",
-                if (PermissionStatus.isIgnoringBatteryOptimizations(context)) "Exempt" else "Restricted"
+                if (PermissionStatus.isIgnoringBatteryOptimizations(context)) "Exempt" else "Restricted",
+                if (PermissionStatus.isIgnoringBatteryOptimizations(context)) StatusOkColor else StatusWarnColor
             )
             Row(
                 modifier = Modifier
@@ -275,14 +315,14 @@ fun SettingsScreen(
                     }
                     smsPermissionLauncher.launch(permissions.toTypedArray())
                 }) { Text("Grant SMS") }
-                Button(onClick = { openSystemSettings(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS) }) {
-                    Text("Notification access")
-                }
-                Button(onClick = {
+                OutlinedButton(
+                    onClick = { openSystemSettings(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS) }
+                ) { Text("Notification access") }
+                OutlinedButton(onClick = {
                     openSystemSettings(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
                 }) { Text("Battery") }
             }
-            Button(
+            OutlinedButton(
                 onClick = {
                     runCatching {
                         context.startActivity(
@@ -301,7 +341,7 @@ fun SettingsScreen(
             Button(onClick = onOpenDiagnostics, modifier = Modifier.fillMaxWidth()) {
                 Text("Open diagnostics and test a message")
             }
-            Button(onClick = onOpenBackup, modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = onOpenBackup, modifier = Modifier.fillMaxWidth()) {
                 Text("Backup & restore")
             }
             ValueRow(
@@ -321,22 +361,22 @@ fun SettingsScreen(
             Text(
                 text = "Answers to the common questions, and how PayAlert handles your data.",
                 style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onOpenFaq)
-                    .padding(vertical = 8.dp)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            TextButton(onClick = onOpenFaq) { Text("Help & FAQ") }
-            TextButton(onClick = onOpenTerms) { Text("Privacy & terms") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onOpenFaq) { Text("Help & FAQ") }
+                OutlinedButton(onClick = onOpenTerms) { Text("Privacy & terms") }
+            }
         }
 
         SectionCard(title = "Reset") {
             Text(
                 text = "Restore every setting to its default value. Your detected payments, " +
                     "cashbook and reminders are not touched.",
-                style = MaterialTheme.typography.bodyMedium
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Button(
+            OutlinedButton(
                 onClick = { graph.settings.resetToDefaults() },
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Reset all settings") }

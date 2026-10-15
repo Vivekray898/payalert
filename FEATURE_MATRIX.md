@@ -138,6 +138,38 @@ minSdk 24, targetSdk 36 (read from `.apk_extract/manifest.xml` and the DEX symbo
 | 6.16 | Rating prompt (review-prompt equivalent) | no Play Core `ReviewManager` in the reference DEX; a local prompt is the equivalent behaviour | `implemented and verified` | `ReviewPromptPolicy` (6 unit tests) + a Compose dialog shown from `MainActivity`. **Runtime, all three outcomes:** *Later* → `prompt_count=1` and no re-prompt on relaunch; *Rate on Play* → `rated=true` and the store opened on the app's listing (`com.android.vending/…UnauthenticatedMainActivity`); *No thanks* → `dismissed=true` and permanently suppressed | Play Core's In-App Review flow was not added (needs Play Services on a Play-installed device); the store deep link is used instead |
 | 6.14 | Diagnostics for rule coverage | — | `implemented and verified` | **Runtime:** Diagnostics and Settings both report the live rule-set size (42 banks · 5 wallets · 95 sender ids) and flag an asset-load failure instead of hiding it | — |
 
+## 7. UI/UX
+
+Statuses here follow the same rule as everywhere else in this file: **`implemented and
+verified`** requires a rendered frame on disk, and the path is cited. Every frame below was
+captured with `adb exec-out screencap -p` on the `Pixel_8_Pro` AVD (Android 14 / API 34,
+1344×2992 @ 480 dpi) from the APK produced by the `clean :app:assembleDebug` run recorded in
+`BUILD_AND_VERIFICATION.md` §11.
+
+| # | Screen | Reference evidence (APK) | PayAlert status | Evidence | Gap |
+|---|---|---|---|---|---|
+| 7.1 | Home | `ui.MainHomeActivity` | `implemented and verified` | `screenshots/after/home.png` (228,785 B) and `screenshots/after/night/home.png` (225,794 B). Frame shows teal `In` / orange `Out` chips with a `headlineSmall` navy `Net`, six icon-led detection rows coloured by state, a filled `Transactions` + outlined `Payment QR`, and recent payments with a leading direction avatar and the merchant rendered as stored. The a11y dump lists both recent rows with `content-desc="Money out"` / `"Money in"` | — |
+| 7.2 | History (transactions) | `ui.transactions.TransactionsActivity` | `implemented and verified` | `screenshots/after/history.png` (267,082 B) and `screenshots/after/night/history.png` (267,446 B). Frame shows `In`/`Out`/`Items` stat chips, a search field with a leading glyph and a trailing clear button, `DIRECTION`/`RANGE`/`ACCOUNT` chip groups on separate labelled rows, and an app bar carrying `Analytics`, `Export history` and `Clear filters`. Rows read `via SMS · HDFC Bank` (never the raw detector string or sender id) | — |
+| 7.3 | Analytics | `ui.analytics.TransactionAnalyticsActivity` | `implemented and verified` | `screenshots/after/analytics.png` (228,089 B) and `screenshots/after/night/analytics.png` (225,861 B). Frame shows the four range chips on one line in a scroll row, the summary card with `In`/`Out` chips, spending-by-category bars, a populated `Top payees` list, the single-day header `Today`, and a right-aligned tonal `Share summary (CSV)` | No chart library — proportional bars only |
+| 7.4 | Cashbook | `ui.cashbook.CashbookActivity` | `implemented and verified` | `screenshots/after/cashbook.png` (138,395 B) and `screenshots/after/night/cashbook.png` (140,355 B). Frame shows `Balance` over `₹0.00` in `displaySmall`, `In`/`Out`/`Entries` chips, a filled `+ Add entry` + outlined `Report`, the overflow `More actions` action in the app bar, and an icon-led empty state with a `+ Add your first entry` button | — |
+| 7.5 | Upcoming payments | `ui.passbook.UpcomingPaymentsActivity` | `implemented and verified` | `screenshots/after/upcoming.png` (111,505 B) and `screenshots/after/night/upcoming.png` (111,429 B). Frame shows `To pay` / `To receive` chips, a single filled `+ Add reminder`, an icon-led empty state, and **no** `Re-arm alarms` on the surface — its a11y dump contains `Add reminder` only, with the maintenance action inside the `More actions` overflow | — |
+| 7.6 | Settings | `ui.settings.SettingsActivity` + per-feature settings screens | `implemented and verified` | `screenshots/after/settings.png` (232,592 B) and `screenshots/after/night/settings.png` (225,455 B). Frame shows one consistent card header style, the three sound-mode chips on a single scroll row, permission values coloured teal when granted and orange when not, and secondary actions demoted to outlined buttons | The reference's own Settings defect list was truncated in the brief, so the changes made are the ones listed in `screenshots/COMPARISON.md` rather than a point-for-point match |
+| 7.7 | Bottom navigation | bottom tab bar in reference | `implemented and verified` | `screenshots/after/home.png` and the a11y dump of every captured screen list exactly five items — `Home`, `History`, `Cashbook`, `Upcoming`, `Settings` — each with an icon and one label; there is no two-letter abbreviation anywhere. The indicator is `tertiaryContainer` and the selected icon/label `tertiary`; probed on the frame as `rgb(225,241,239)` in day and `rgb(3,71,61)` in night | — |
+
+Night-mode frames were produced by `adb shell cmd uimode night yes` followed by a full
+capture pass; the day frames by `cmd uimode night no`. The two passes are distinguishable by
+measurement (mean luminance ≈ 223–230 day vs ≈ 32–38 night), so the night column is not a
+re-photograph of the light one.
+
+## 8. Theme
+
+| # | Item | Status | Evidence |
+|---|---|---|---|
+| 8.1 | Palette source | `implemented and verified` | The four scheme anchors are **sampled from the launcher icon**, not invented: `app/src/main/ic_launcher-playstore.png` (512×512) → primary navy `#122550`, secondary orange `#F65026`, tertiary teal `#058E7A`, accent gold `#FE8D13`. The extraction command, its literal output and the per-cluster pixel counts are in `screenshots/PALETTE.md`. Confirmed in the frames: the status bar and the primary action button probe as `rgb(18,37,80)` = `#122550`, the page background as `rgb(250,250,250)` = `#FAFAFA` |
+| 8.2 | Dynamic colour decision | `implemented and verified` | **Disabled deliberately.** `PayAlertTheme` always passes the explicit `LightColors` / `DarkColors` scheme and never calls `dynamicLightColorScheme` / `dynamicDarkColorScheme`, so a wallpaper-derived scheme can never displace the icon palette. Verified by reading `ui/theme/Theme.kt` and by the day/night frames still showing the brand navy and teal on an API 34 device that supports dynamic colour |
+| 8.3 | Semantic colour mapping | `implemented and verified` | teal = money in and healthy, orange = money out and warning, red = failure, navy = primary action and headings. The three status colours live in one place (`ui/components/Common.kt`) and are shared by Home, History, Analytics and Settings, so the screens cannot drift apart. Visible in `screenshots/after/home.png` and `screenshots/after/settings.png` |
+| 8.4 | Night palette | `implemented and verified` | Hand-tuned from the same four source colours (not an inversion): background `#10131C`, surface `#171B24`, primary `#6F68A8`, tertiary `#4FD9B5`, statuses `#4FD9B5` / `#FF8A5C` / `#F2B8B5`. Probed on `screenshots/after/night/home.png` as `rgb(16,19,28)`, `rgb(23,27,36)`, `rgb(111,104,168)`. The values table is in `screenshots/PALETTE.md` |
+
 ---
 
 ## Summary

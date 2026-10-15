@@ -1,6 +1,7 @@
 package com.vivekray898.payalert.ui.analytics
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,10 +10,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -20,12 +23,15 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.vivekray898.payalert.R
 import com.vivekray898.payalert.export.TransactionExporter
 import com.vivekray898.payalert.ui.components.ExportShare
 import com.vivekray898.payalert.ui.components.OverlayHeader
 import com.vivekray898.payalert.ui.components.SectionCard
+import com.vivekray898.payalert.ui.components.StatChip
 import com.vivekray898.payalert.ui.components.ValueRow
 import com.vivekray898.payalert.ui.formatAmount
 import java.text.SimpleDateFormat
@@ -47,8 +53,11 @@ fun AnalyticsScreen(onBack: () -> Unit, viewModel: AnalyticsViewModel = viewMode
     ) {
         OverlayHeader("Analytics", onBack)
 
+        // Range chips scroll instead of wrapping, so no label is ever split mid-word.
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             RangePreset.entries.forEach { preset ->
@@ -61,8 +70,18 @@ fun AnalyticsScreen(onBack: () -> Unit, viewModel: AnalyticsViewModel = viewMode
         }
 
         SectionCard(title = state.preset.label) {
-            ValueRow("Money in", formatAmount(summary?.totalIn ?: 0.0))
-            ValueRow("Money out", formatAmount(summary?.totalOut ?: 0.0))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatChip(
+                    "In",
+                    formatAmount(summary?.totalIn ?: 0.0),
+                    MaterialTheme.colorScheme.tertiary
+                )
+                StatChip(
+                    "Out",
+                    formatAmount(summary?.totalOut ?: 0.0),
+                    MaterialTheme.colorScheme.secondary
+                )
+            }
             ValueRow("Net", formatAmount(summary?.net ?: 0.0))
             ValueRow("Payments detected", (summary?.transactionCount ?: 0).toString())
         }
@@ -78,7 +97,11 @@ fun AnalyticsScreen(onBack: () -> Unit, viewModel: AnalyticsViewModel = viewMode
         } else {
             SectionCard(title = "Spending by category") {
                 if (summary.byCategory.isEmpty()) {
-                    Text("No outgoing payments in this range.", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "No outgoing payments in this range.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 val largest = summary.byCategory.maxOfOrNull { it.amount } ?: 1.0
                 summary.byCategory.take(8).forEach { total ->
@@ -105,12 +128,20 @@ fun AnalyticsScreen(onBack: () -> Unit, viewModel: AnalyticsViewModel = viewMode
             }
 
             SectionCard(title = "Top payees") {
-                summary.topMerchants.forEach { merchant ->
-                    ValueRow(merchant.label, formatAmount(merchant.amount))
+                if (summary.topMerchants.isEmpty()) {
+                    Text(
+                        "No outgoing payments yet.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    summary.topMerchants.forEach { merchant ->
+                        ValueRow(merchant.label, formatAmount(merchant.amount))
+                    }
                 }
             }
 
-            SectionCard(title = "Daily movement") {
+            SectionCard(title = if (summary.byDay.size <= 1) "Today" else "Daily movement") {
                 val formatter = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
                 summary.byDay.take(14).forEach { day ->
                     ValueRow(
@@ -126,17 +157,31 @@ fun AnalyticsScreen(onBack: () -> Unit, viewModel: AnalyticsViewModel = viewMode
                 "The export contains the summary above, so the numbers can be re-checked " +
                     "outside the app.",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.secondary
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Button(
-                onClick = {
-                    val csv = summary?.let {
-                        TransactionExporter.summaryToCsv(it, state.preset.label)
-                    } ?: "range,${state.preset.label}\n"
-                    ExportShare.share(context, "payalert-summary.csv", "text/csv", csv)
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("Share summary (CSV)") }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                FilledTonalButton(
+                    onClick = {
+                        val csv = summary?.let {
+                            TransactionExporter.summaryToCsv(it, state.preset.label)
+                        } ?: "range,${state.preset.label}\n"
+                        ExportShare.share(context, "payalert-summary.csv", "text/csv", csv)
+                    }
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_export),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        "  Share summary (CSV)",
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+            }
         }
     }
 }
