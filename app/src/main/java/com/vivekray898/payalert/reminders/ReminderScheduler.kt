@@ -75,7 +75,7 @@ object ReminderScheduler {
             .setContentText(
                 String.format(Locale.US, "%,.2f %s due %s", payment.amount, direction, due)
             )
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_notification)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)

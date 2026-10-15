@@ -1,0 +1,4 @@
+--------- beginning of main
+10-16 02:02:50.125 10467 10501 I PayAlertSound: transition=decision mode=SILENT preview=false t=36466840 chime=false speak=false vibrate=true
+10-16 02:02:50.126 10467 10501 I PayAlertSound: transition=vibration_started mode=SILENT preview=false t=36466841
+10-16 02:02:50.126 10467 10501 I PayAlertSound: transition=silent mode=SILENT preview=false t=36466841

@@ -1,0 +1,74 @@
+===== RUN 1 amount 501 UTR 555555555561 =====
+--------- beginning of main
+10-16 01:57:00.283  9941  9987 I PayAlertSound: transition=decision mode=CHIME_AND_SPEECH preview=false t=36116998 chime=true speak=true vibrate=true
+10-16 01:57:00.284  9941  9987 I PayAlertSound: transition=vibration_started mode=CHIME_AND_SPEECH preview=false t=36116999
+10-16 01:57:00.284  9941  9987 I PayAlertSound: transition=chime_queued mode=CHIME_AND_SPEECH preview=false t=36116999 queueDepth=1
+10-16 01:57:00.286  9941  9987 I PayAlertSound: mode=CHIME_AND_SPEECH event=chime_start t=36117001 preview=false
+10-16 01:57:00.286  9941  9987 I PayAlertSound: mode=CHIME_AND_SPEECH event=speech_scheduled t=36117001 preview=false delayMs=1424 leadMs=39 chimeDurationMs=1463
+10-16 01:57:00.286  9941  9987 I PayAlertSound: transition=chime_started mode=CHIME_AND_SPEECH preview=false t=36117001 volume=1.0
+10-16 01:57:01.711  9941  9987 I PayAlertSound: transition=speech_requested mode=CHIME_AND_SPEECH preview=false t=36118426 reason=scheduled
+10-16 01:57:01.821  9941  9987 I PayAlertSound: mode=CHIME_AND_SPEECH event=speak_start t=36118535 preview=false
+10-16 01:57:01.821  9941  9987 I PayAlertSound: transition=speech_queued mode=CHIME_AND_SPEECH preview=false t=36118536 result=0
+10-16 01:57:01.821  9941  9987 I PayAlertSound: mode=CHIME_AND_SPEECH event=chime_end t=36118536 preview=false
+10-16 01:57:01.821  9941  9987 I PayAlertSound: transition=chime_completed mode=CHIME_AND_SPEECH preview=false t=36118536
+10-16 01:57:01.846  9941  9958 I PayAlertSound: mode=CHIME_AND_SPEECH event=speak_audio_start t=36118560 preview=false leadMs=25
+===== RUN 2 amount 502 UTR 555555555562 =====
+--------- beginning of main
+10-16 01:57:05.356  9941  9987 I PayAlertSound: transition=decision mode=CHIME_AND_SPEECH preview=false t=36122070 chime=true speak=true vibrate=true
+10-16 01:57:05.357  9941  9987 I PayAlertSound: transition=vibration_started mode=CHIME_AND_SPEECH preview=false t=36122072
+10-16 01:57:05.357  9941  9987 I PayAlertSound: transition=chime_queued mode=CHIME_AND_SPEECH preview=false t=36122072 queueDepth=1
+10-16 01:57:05.358  9941  9987 I PayAlertSound: mode=CHIME_AND_SPEECH event=chime_start t=36122073 preview=false
+10-16 01:57:05.359  9941  9987 I PayAlertSound: mode=CHIME_AND_SPEECH event=speech_scheduled t=36122074 preview=false delayMs=1438 leadMs=25 chimeDurationMs=1463
+10-16 01:57:05.359  9941  9987 I PayAlertSound: transition=chime_started mode=CHIME_AND_SPEECH preview=false t=36122074 volume=1.0
+10-16 01:57:06.802  9941  9987 I PayAlertSound: transition=speech_requested mode=CHIME_AND_SPEECH preview=false t=36123516 reason=scheduled
+10-16 01:57:06.904  9941  9987 I PayAlertSound: mode=CHIME_AND_SPEECH event=speak_start t=36123619 preview=false
+10-16 01:57:06.905  9941  9987 I PayAlertSound: transition=speech_queued mode=CHIME_AND_SPEECH preview=false t=36123620 result=0
+10-16 01:57:06.905  9941  9987 I PayAlertSound: mode=CHIME_AND_SPEECH event=chime_end t=36123620 preview=false
+10-16 01:57:06.905  9941  9987 I PayAlertSound: transition=chime_completed mode=CHIME_AND_SPEECH preview=false t=36123620
+10-16 01:57:06.905  9941  9956 I PayAlertSound: mode=CHIME_AND_SPEECH event=speak_end t=36123620 preview=false
+10-16 01:57:06.930  9941  9956 I PayAlertSound: mode=CHIME_AND_SPEECH event=speak_audio_start t=36123645 preview=false leadMs=26
+===== RUN 3 amount 503 UTR 555555555563 =====
+--------- beginning of main
+10-16 01:57:10.498  9941  9987 I PayAlertSound: transition=decision mode=CHIME_AND_SPEECH preview=false t=36127213 chime=true speak=true vibrate=true
+10-16 01:57:10.499  9941  9987 I PayAlertSound: transition=vibration_started mode=CHIME_AND_SPEECH preview=false t=36127214
+10-16 01:57:10.499  9941  9987 I PayAlertSound: transition=chime_queued mode=CHIME_AND_SPEECH preview=false t=36127214 queueDepth=1
+10-16 01:57:10.500  9941  9987 I PayAlertSound: mode=CHIME_AND_SPEECH event=chime_start t=36127215 preview=false
+10-16 01:57:10.500  9941  9987 I PayAlertSound: mode=CHIME_AND_SPEECH event=speech_scheduled t=36127215 preview=false delayMs=1437 leadMs=26 chimeDurationMs=1463
+10-16 01:57:10.500  9941  9987 I PayAlertSound: transition=chime_started mode=CHIME_AND_SPEECH preview=false t=36127215 volume=1.0
+10-16 01:57:11.822  9941 10191 I PayAlertSound: mode=CHIME_AND_SPEECH event=speak_end t=36128537 preview=false
+10-16 01:57:11.938  9941  9987 I PayAlertSound: transition=speech_requested mode=CHIME_AND_SPEECH preview=false t=36128653 reason=scheduled
+10-16 01:57:12.033  9941  9987 I PayAlertSound: mode=CHIME_AND_SPEECH event=speak_start t=36128748 preview=false
+10-16 01:57:12.034  9941  9987 I PayAlertSound: transition=speech_queued mode=CHIME_AND_SPEECH preview=false t=36128749 result=0
+10-16 01:57:12.034  9941  9987 I PayAlertSound: mode=CHIME_AND_SPEECH event=chime_end t=36128749 preview=false
+10-16 01:57:12.034  9941  9987 I PayAlertSound: transition=chime_completed mode=CHIME_AND_SPEECH preview=false t=36128749
+10-16 01:57:12.059  9941  9972 I PayAlertSound: mode=CHIME_AND_SPEECH event=speak_audio_start t=36128774 preview=false leadMs=26
+===== RUN 4 amount 504 UTR 555555555564 =====
+--------- beginning of main
+10-16 01:57:15.608  9941  9987 I PayAlertSound: transition=decision mode=CHIME_AND_SPEECH preview=false t=36132322 chime=true speak=true vibrate=true
+10-16 01:57:15.608  9941  9987 I PayAlertSound: transition=vibration_started mode=CHIME_AND_SPEECH preview=false t=36132323
+10-16 01:57:15.608  9941  9987 I PayAlertSound: transition=chime_queued mode=CHIME_AND_SPEECH preview=false t=36132323 queueDepth=1
+10-16 01:57:15.609  9941  9987 I PayAlertSound: mode=CHIME_AND_SPEECH event=chime_start t=36132324 preview=false
+10-16 01:57:15.609  9941  9987 I PayAlertSound: mode=CHIME_AND_SPEECH event=speech_scheduled t=36132324 preview=false delayMs=1437 leadMs=26 chimeDurationMs=1463
+10-16 01:57:15.610  9941  9987 I PayAlertSound: transition=chime_started mode=CHIME_AND_SPEECH preview=false t=36132324 volume=1.0
+10-16 01:57:17.048  9941  9987 I PayAlertSound: transition=speech_requested mode=CHIME_AND_SPEECH preview=false t=36133763 reason=scheduled
+10-16 01:57:17.149  9941  9987 I PayAlertSound: mode=CHIME_AND_SPEECH event=speak_start t=36133864 preview=false
+10-16 01:57:17.150  9941  9987 I PayAlertSound: transition=speech_queued mode=CHIME_AND_SPEECH preview=false t=36133865 result=0
+10-16 01:57:17.150  9941  9987 I PayAlertSound: mode=CHIME_AND_SPEECH event=chime_end t=36133865 preview=false
+10-16 01:57:17.150  9941  9987 I PayAlertSound: transition=chime_completed mode=CHIME_AND_SPEECH preview=false t=36133865
+10-16 01:57:17.150  9941  9972 I PayAlertSound: mode=CHIME_AND_SPEECH event=speak_end t=36133865 preview=false
+10-16 01:57:17.176  9941  9972 I PayAlertSound: mode=CHIME_AND_SPEECH event=speak_audio_start t=36133891 preview=false leadMs=27
+===== RUN 5 amount 505 UTR 555555555565 =====
+--------- beginning of main
+10-16 01:57:20.703  9941  9987 I PayAlertSound: transition=decision mode=CHIME_AND_SPEECH preview=false t=36137418 chime=true speak=true vibrate=true
+10-16 01:57:20.704  9941  9987 I PayAlertSound: transition=vibration_started mode=CHIME_AND_SPEECH preview=false t=36137419
+10-16 01:57:20.704  9941  9987 I PayAlertSound: transition=chime_queued mode=CHIME_AND_SPEECH preview=false t=36137419 queueDepth=1
+10-16 01:57:20.707  9941  9987 I PayAlertSound: mode=CHIME_AND_SPEECH event=chime_start t=36137422 preview=false
+10-16 01:57:20.708  9941  9987 I PayAlertSound: mode=CHIME_AND_SPEECH event=speech_scheduled t=36137422 preview=false delayMs=1436 leadMs=27 chimeDurationMs=1463
+10-16 01:57:20.708  9941  9987 I PayAlertSound: transition=chime_started mode=CHIME_AND_SPEECH preview=false t=36137422 volume=1.0
+10-16 01:57:21.898  9941  9972 I PayAlertSound: mode=CHIME_AND_SPEECH event=speak_end t=36138613 preview=false
+10-16 01:57:22.144  9941  9987 I PayAlertSound: transition=speech_requested mode=CHIME_AND_SPEECH preview=false t=36138858 reason=scheduled
+10-16 01:57:22.247  9941  9987 I PayAlertSound: mode=CHIME_AND_SPEECH event=speak_start t=36138962 preview=false
+10-16 01:57:22.248  9941  9987 I PayAlertSound: transition=speech_queued mode=CHIME_AND_SPEECH preview=false t=36138963 result=0
+10-16 01:57:22.248  9941  9987 I PayAlertSound: mode=CHIME_AND_SPEECH event=chime_end t=36138963 preview=false
+10-16 01:57:22.248  9941  9987 I PayAlertSound: transition=chime_completed mode=CHIME_AND_SPEECH preview=false t=36138963
+10-16 01:57:22.273  9941  9972 I PayAlertSound: mode=CHIME_AND_SPEECH event=speak_audio_start t=36138987 preview=false leadMs=25

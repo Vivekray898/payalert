@@ -4,10 +4,14 @@ import android.content.Context
 import android.media.MediaPlayer
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import com.vivekray898.payalert.R
 import com.vivekray898.payalert.settings.AppSettings
@@ -37,10 +41,14 @@ class TtsEngine(
     private val soundExecutor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "PayAlertSound").apply { isDaemon = true }
     }
+    private val soundHandler = Handler(Looper.getMainLooper())
     private val stateLock = Any()
 
     private var engine: TextToSpeech? = null
     private val pendingSpeech = ArrayDeque<PendingSpeech>()
+    private val utteranceModes = HashMap<String, UtteranceInfo>()
+    @Volatile
+    private var lastTtsOnsetLatencyMs = 0L
     private var chimePlayer: MediaPlayer? = null
     private val chimeQueue = ArrayDeque<ChimeRequest>()
     private var activeChime: ChimeRequest? = null
@@ -121,7 +129,9 @@ class TtsEngine(
             if (shutDown) return
             shutDown = true
             pendingSpeech.clear()
+            utteranceModes.clear()
             chimeQueue.clear()
+            activeChime?.speechRunnable?.let(soundHandler::removeCallbacks)
             activeChime = null
             chimePlayer?.setOnCompletionListener(null)
             chimePlayer?.runCatching { release() }
@@ -190,7 +200,10 @@ class TtsEngine(
                         detail = "status=$status"
                     )
                     if (ok) {
+                        logEvent("tts_ready", null, preview = false, detail = "status=$status")
+                        engine?.setOnUtteranceProgressListener(utteranceListener)
                         engine?.let(::applySettings)
+                        warmUpTtsLocked()
                         while (pendingSpeech.isNotEmpty()) {
                             val pending = pendingSpeech.removeFirst()
                             speakNowLocked(pending)
@@ -229,15 +242,20 @@ class TtsEngine(
             // TextToSpeech has no setVolume(); speech volume travels in the utterance params.
             putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, snapshot.volume.coerceIn(0f, 1f))
         }
+        val utteranceId = UUID.randomUUID().toString()
+        val speakStartMs = SystemClock.elapsedRealtime()
+        utteranceModes[utteranceId] = UtteranceInfo(pending, speakStartMs)
+        logEvent("speak_start", pending.mode, pending.preview)
         try {
-            // Queue speech so two accepted payments are not silently dropped or interrupted.
+            // Flush stale speech so a current payment is not delayed by an older utterance.
             val result = tts.speak(
                 pending.text,
-                TextToSpeech.QUEUE_ADD,
+                TextToSpeech.QUEUE_FLUSH,
                 params,
-                UUID.randomUUID().toString()
+                utteranceId
             )
             if (result == TextToSpeech.ERROR) {
+                utteranceModes.remove(utteranceId)
                 logTransition("speech_failed", pending.mode, pending.preview, "result=ERROR")
             } else {
                 logTransition("speech_queued", pending.mode, pending.preview, "result=$result")
@@ -257,6 +275,25 @@ class TtsEngine(
         tts.setSpeechRate(snapshot.speechRate.coerceIn(0.1f, 2.0f))
         tts.setPitch(snapshot.pitch.coerceIn(0.1f, 2.0f))
         tts.setLanguage(localeFor(snapshot.languageTag))
+    }
+
+    private fun warmUpTtsLocked() {
+        val tts = engine ?: return
+        val utteranceId = "warmup-${UUID.randomUUID()}"
+        val warmup = PendingSpeech(" ", preview = false, mode = null)
+        val speakStartMs = SystemClock.elapsedRealtime()
+        utteranceModes[utteranceId] = UtteranceInfo(warmup, speakStartMs)
+        val params = Bundle().apply {
+            putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 0f)
+        }
+        logEvent("tts_warmup_start", null, preview = false)
+        val result = runCatching {
+            tts.speak(" ", TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+        }.getOrElse { TextToSpeech.ERROR }
+        if (result == TextToSpeech.ERROR) {
+            utteranceModes.remove(utteranceId)
+            logEvent("tts_warmup_failed", null, preview = false)
+        }
     }
 
     private fun enqueueChime(request: ChimeRequest) {
@@ -318,11 +355,13 @@ class TtsEngine(
         activeChime = request
         try {
             // Queue policy: chime cues keep payment order; a later payment waits for the current
-            // chime instead of interrupting/restarting it or dropping the cue. TTS uses QUEUE_ADD
-            // as well, so speech requests retain order even when the next chime has started.
+            // chime instead of interrupting/restarting it or dropping the cue. Speech uses
+            // QUEUE_FLUSH so a stale utterance cannot delay the current announcement.
             player.setVolume(request.volume, request.volume)
             player.seekTo(0)
             player.start()
+            logEvent("chime_start", request.mode, request.preview)
+            scheduleSpeechBeforeChimeCompletion(player, request)
             logTransition(
                 "chime_started",
                 request.mode,
@@ -352,12 +391,42 @@ class TtsEngine(
         synchronized(stateLock) {
             val request = activeChime ?: return
             activeChime = null
+            logEvent("chime_end", request.mode, request.preview)
             logTransition("chime_completed", request.mode, request.preview)
             if (request.speakAfter) {
-                // Speech is submitted from MediaPlayer's completion transition, never before it.
-                speakInternal(request.text, request.preview, request.mode, reason = "after_chime")
+                triggerSpeechIfNeeded(request, reason = "completion")
             }
             chimePlayer?.let { startNextChime(it) }
+        }
+    }
+
+    private fun scheduleSpeechBeforeChimeCompletion(
+        player: MediaPlayer,
+        request: ChimeRequest
+    ) {
+        if (!request.speakAfter) return
+        val durationMs = player.duration.toLong().coerceAtLeast(0L)
+        val leadMs = lastTtsOnsetLatencyMs.coerceIn(0L, MAX_TTS_LEAD_MS)
+        val delayMs = (durationMs - leadMs).coerceAtLeast(0L)
+        val runnable = Runnable {
+            submitSoundTask { triggerSpeechIfNeeded(request, reason = "scheduled") }
+        }
+        request.speechRunnable = runnable
+        soundHandler.postDelayed(runnable, delayMs)
+        logEvent(
+            "speech_scheduled",
+            request.mode,
+            request.preview,
+            "delayMs=$delayMs leadMs=$leadMs chimeDurationMs=$durationMs"
+        )
+    }
+
+    private fun triggerSpeechIfNeeded(request: ChimeRequest, reason: String) {
+        synchronized(stateLock) {
+            if (request.speechTriggered) return
+            request.speechTriggered = true
+            request.speechRunnable?.let(soundHandler::removeCallbacks)
+            speakInternal(request.text, request.preview, request.mode, reason = reason)
         }
     }
 
@@ -413,7 +482,58 @@ class TtsEngine(
     ) {
         val modeText = mode?.name ?: "none"
         val suffix = detail?.let { " $it" } ?: ""
-        Log.i(SOUND_TAG, "transition=$transition mode=$modeText preview=$preview$suffix")
+        Log.i(
+            SOUND_TAG,
+            "transition=$transition mode=$modeText preview=$preview t=${SystemClock.elapsedRealtime()}$suffix"
+        )
+    }
+
+    private fun logEvent(
+        event: String,
+        mode: SoundMode?,
+        preview: Boolean,
+        detail: String? = null
+    ) {
+        val modeText = mode?.name ?: "none"
+        val suffix = detail?.let { " $it" } ?: ""
+        val t = SystemClock.elapsedRealtime()
+        Log.i(SOUND_TAG, "mode=$modeText event=$event t=$t preview=$preview$suffix")
+    }
+
+    private val utteranceListener = object : UtteranceProgressListener() {
+        override fun onStart(utteranceId: String?) {
+            val info = utteranceId?.let { synchronized(stateLock) { utteranceModes[it] } }
+            val t = SystemClock.elapsedRealtime()
+            val leadMs = info?.let { (t - it.speakStartMs).coerceAtLeast(0L) }
+            if (leadMs != null) lastTtsOnsetLatencyMs = leadMs
+            logEvent(
+                "speak_audio_start",
+                info?.pending?.mode,
+                info?.pending?.preview ?: false,
+                leadMs?.let { "leadMs=$it" }
+            )
+        }
+
+        override fun onDone(utteranceId: String?) {
+            val info = utteranceId?.let { synchronized(stateLock) { utteranceModes.remove(it) } }
+            logEvent("speak_end", info?.pending?.mode, info?.pending?.preview ?: false)
+        }
+
+        @Deprecated("Deprecated in the Android API")
+        override fun onError(utteranceId: String?) {
+            val info = utteranceId?.let { synchronized(stateLock) { utteranceModes.remove(it) } }
+            logEvent("speak_error", info?.pending?.mode, info?.pending?.preview ?: false)
+        }
+
+        override fun onError(utteranceId: String?, errorCode: Int) {
+            val info = utteranceId?.let { synchronized(stateLock) { utteranceModes.remove(it) } }
+            logEvent(
+                "speak_error",
+                info?.pending?.mode,
+                info?.pending?.preview ?: false,
+                "code=$errorCode"
+            )
+        }
     }
 
     private data class PendingSpeech(
@@ -422,15 +542,23 @@ class TtsEngine(
         val mode: SoundMode?
     )
 
+    private data class UtteranceInfo(
+        val pending: PendingSpeech,
+        val speakStartMs: Long
+    )
+
     private data class ChimeRequest(
         val text: String,
         val speakAfter: Boolean,
         val volume: Float,
         val preview: Boolean,
-        val mode: SoundMode
+        val mode: SoundMode,
+        var speechTriggered: Boolean = false,
+        var speechRunnable: Runnable? = null
     )
 
     private companion object {
+        const val MAX_TTS_LEAD_MS = 150L
         const val SOUND_TAG = "PayAlertSound"
         const val PREVIEW_TEXT = "This is a PayAlert sound preview."
     }

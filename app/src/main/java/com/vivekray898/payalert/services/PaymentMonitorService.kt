@@ -41,7 +41,7 @@ class PaymentMonitorService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Warm the graph so the TTS engine is initialised before the first payment.
-        AppGraph.get(this)
+        AppGraph.get(this).tts.ensureInitialized()
 
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
@@ -86,7 +86,7 @@ class PaymentMonitorService : Service() {
             return NotificationCompat.Builder(context, CHANNEL_ID)
                 .setContentTitle(context.getString(R.string.monitor_notification_title))
                 .setContentText(context.getString(R.string.monitor_notification_text))
-                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setSmallIcon(R.drawable.ic_notification)
                 .setOngoing(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setCategory(NotificationCompat.CATEGORY_SERVICE)

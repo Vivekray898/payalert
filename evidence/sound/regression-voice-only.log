@@ -1,0 +1,7 @@
+--------- beginning of main
+10-16 02:00:25.814 10467 10501 I PayAlertSound: transition=decision mode=SPEECH preview=false t=36322528 chime=false speak=true vibrate=false
+10-16 02:00:25.814 10467 10501 I PayAlertSound: transition=vibration_skipped mode=SPEECH preview=false t=36322529 enabled=false
+10-16 02:00:25.814 10467 10501 I PayAlertSound: transition=speech_requested mode=SPEECH preview=false t=36322529 reason=mode
+10-16 02:00:25.944 10467 10501 I PayAlertSound: mode=SPEECH event=speak_start t=36322658 preview=false
+10-16 02:00:25.944 10467 10501 I PayAlertSound: transition=speech_queued mode=SPEECH preview=false t=36322659 result=0
+10-16 02:00:25.995 10467 10690 I PayAlertSound: mode=SPEECH event=speak_audio_start t=36322710 preview=false leadMs=52

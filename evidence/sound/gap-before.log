@@ -1,0 +1,17 @@
+--------- beginning of main
+10-16 01:47:56.953  9457  9591 I PayAlertSound: transition=decision mode=CHIME_AND_SPEECH preview=false t=35573668 chime=true speak=true vibrate=true
+10-16 01:47:56.954  9457  9591 I PayAlertSound: transition=vibration_started mode=CHIME_AND_SPEECH preview=false t=35573669
+10-16 01:47:56.986  9457  9591 I PayAlertSound: transition=chime_loaded mode=none preview=false t=35573701 resource=kaching
+10-16 01:47:56.986  9457  9591 I PayAlertSound: transition=chime_queued mode=CHIME_AND_SPEECH preview=false t=35573701 queueDepth=1
+10-16 01:47:56.986  9457  9591 I PayAlertSound: mode=CHIME_AND_SPEECH event=chime_start t=35573701 preview=false
+10-16 01:47:56.987  9457  9591 I PayAlertSound: transition=chime_started mode=CHIME_AND_SPEECH preview=false t=35573701 volume=1.0
+10-16 01:48:00.253  9457  9591 I PayAlertSound: mode=CHIME_AND_SPEECH event=chime_end t=35576968 preview=false
+10-16 01:48:00.254  9457  9591 I PayAlertSound: transition=chime_completed mode=CHIME_AND_SPEECH preview=false t=35576968
+10-16 01:48:00.254  9457  9591 I PayAlertSound: transition=speech_requested mode=CHIME_AND_SPEECH preview=false t=35576969 reason=after_chime
+10-16 01:48:00.254  9457  9591 I PayAlertSound: transition=tts_initializing mode=none preview=false t=35576969
+10-16 01:48:00.264  9457  9591 I PayAlertSound: transition=speech_pending mode=CHIME_AND_SPEECH preview=false t=35576979 queueDepth=1
+10-16 01:48:00.938  9457  9457 I PayAlertSound: transition=tts_ready mode=none preview=false t=35577653 status=0
+10-16 01:48:01.199  9457  9457 I PayAlertSound: mode=CHIME_AND_SPEECH event=speak_start t=35577914 preview=false
+10-16 01:48:01.200  9457  9457 I PayAlertSound: transition=speech_queued mode=CHIME_AND_SPEECH preview=false t=35577914 result=0
+10-16 01:48:01.646  9457  9474 I PayAlertSound: mode=CHIME_AND_SPEECH event=speak_audio_start t=35578361 preview=false
+10-16 01:48:06.188  9457  9661 I PayAlertSound: mode=CHIME_AND_SPEECH event=speak_end t=35582903 preview=false

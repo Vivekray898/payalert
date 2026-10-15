@@ -1540,3 +1540,162 @@ transition, cached resource load, completion chaining, and overlap queue. Audibi
 confirmed by me and needs a check by ear. Physical vibration also needs a check by feel on a
 device with haptics. Speech rate, pitch, and end-to-end sound level perception remain outside
 this capture set.
+
+## 13. Chime-to-voice gap
+
+This latency pass changed only the sound timing path. Detection, parsing, deduplication, and the
+four-mode decision behavior were left unchanged.
+
+### 13.1 Baseline measurement
+
+The instrumentation added `SystemClock.elapsedRealtime()` timestamps to every `PayAlertSound`
+transition and added `chime_start`, `chime_end`, `speak_start`, `speak_audio_start`, and
+`speak_end` events. `speak_audio_start` is emitted from
+`UtteranceProgressListener.onStart`, not from the `TextToSpeech.speak()` call.
+
+Baseline capture: `evidence/sound/gap-before.log` and `/tmp/gap-before.log`.
+
+Relevant raw logcat:
+
+```
+10-16 01:47:56.986  9457  9591 I PayAlertSound: mode=CHIME_AND_SPEECH event=chime_start t=35573701 preview=false
+10-16 01:48:00.253  9457  9591 I PayAlertSound: mode=CHIME_AND_SPEECH event=chime_end t=35576968 preview=false
+10-16 01:48:00.254  9457  9591 I PayAlertSound: transition=tts_initializing mode=none preview=false t=35576969
+10-16 01:48:00.938  9457  9457 I PayAlertSound: transition=tts_ready mode=none preview=false t=35577653 status=0
+10-16 01:48:01.199  9457  9457 I PayAlertSound: mode=CHIME_AND_SPEECH event=speak_start t=35577914 preview=false
+10-16 01:48:01.646  9457  9474 I PayAlertSound: mode=CHIME_AND_SPEECH event=speak_audio_start t=35578361 preview=false
+```
+
+Baseline numbers:
+
+| Measurement | Result |
+|---|---:|
+| `chime_end - chime_start` | 3,267 ms |
+| `speak_start - chime_end` | 946 ms |
+| `speak_audio_start - chime_end` | 1,393 ms |
+
+The baseline code-level delay was dominated by first-use TTS initialization: `tts_ready` arrived
+684 ms after `chime_end`, followed by another 261 ms before `speak_start`. The MP3 was also a
+large user-perceived contributor because its trailing silence was 1.460794 seconds. No audio
+focus transition was present in the baseline log, so audio focus was not identified as the cause.
+
+### 13.2 MP3 duration and silence measurement
+
+Commands run:
+
+```
+ffprobe -v error -show_entries format=duration -of csv=p=0 kaching-sound-effect.mp3
+3.186938
+
+ffmpeg -i kaching-sound-effect.mp3 -af silencedetect=noise=-50dB:d=0.05 -f null -
+...
+silence_start: 0
+silence_end: 0.477234 | silence_duration: 0.477234
+silence_start: 1.726145
+silence_end: 3.186939 | silence_duration: 1.460794
+```
+
+The source therefore had more than 30 ms of trailing silence. The requested trimming filter was
+run and reduced the duration:
+
+```
+ffmpeg -i kaching.mp3 -af "silenceremove=stop_periods=1:stop_threshold=-50dB:stop_duration=0.02:detection=peak,areverse,silenceremove=start_periods=1:start_threshold=-50dB,areverse" kaching_trimmed.mp3
+
+before: 3.186938 seconds
+after:  1.427800 seconds
+```
+
+The original source remains at `kaching-sound-effect.mp3`. The trimmed output replaced
+`app/src/main/res/raw/kaching.mp3`. Post-trim silence detection retained the leading silence
+measurement (`0.477166` seconds) and reported no trailing silence interval above the `-50 dB`,
+`0.05 s` threshold. The main non-silent waveform remains present through the trimmed file; the
+remaining question of whether the fade feels cut off needs a check by ear.
+
+Raw command outputs are retained in:
+
+- `evidence/sound/kaching-before-duration.txt`
+- `evidence/sound/kaching-before-silencedetect.txt`
+- `evidence/sound/kaching-after-duration.txt`
+- `evidence/sound/kaching-after-silencedetect.txt`
+
+### 13.3 Fixes applied
+
+| Cause / fix | Change | Location |
+|---|---|---|
+| Trailing MP3 silence | Replaced the raw resource with the measured 1.427800-second trimmed copy; retained the original source file | `app/src/main/res/raw/kaching.mp3` |
+| TTS cold start | `PaymentMonitorService` now calls `tts.ensureInitialized()` at service start. `TtsEngine` logs `tts_ready` and submits a volume-zero warmup utterance after `onInit` | `PaymentMonitorService.kt:42–45`; `TtsEngine.kt:178–213, 279–297` |
+| Completion dispatch gap | Speech is scheduled on a `Handler` at `chimeDurationMs - leadMs`, with measured onset latency capped at 150 ms. `onCompletion` remains a guarded fallback | `TtsEngine.kt:315–365, 402–438` |
+| Stale speech queue | Announcement speech now uses `TextToSpeech.QUEUE_FLUSH` | `TtsEngine.kt:232–261` |
+| Audio focus | Not changed; baseline logcat did not identify audio focus as a contributor | — |
+
+The `speechTriggered` guard prevents the scheduled callback and the completion fallback from
+starting the same announcement twice. The existing FIFO chime policy remains in place, so a
+second chime cannot overlap the first chime.
+
+The pre-warm capture is `evidence/sound/tts-prewarm.log`:
+
+```
+10-16 02:07:25.907 11649 11699 I PayAlertSound: transition=tts_initializing mode=none preview=false t=36742622
+10-16 02:07:26.758 11649 11649 I PayAlertSound: transition=tts_ready mode=none preview=false t=36743473 status=0
+10-16 02:07:26.758 11649 11649 I PayAlertSound: mode=none event=tts_ready t=36743473 preview=false status=0
+10-16 02:07:26.900 11649 11649 I PayAlertSound: mode=none event=tts_warmup_start t=36743615 preview=false
+10-16 02:07:27.409 11649 11669 I PayAlertSound: mode=none event=speak_audio_start t=36744124 preview=false leadMs=509
+```
+
+### 13.4 Five post-fix captures
+
+The combined raw capture is `evidence/sound/gap-after.log` and `/tmp/gap-after.log`. The first
+literal repeat using only a new UTR was suppressed by the existing semantic dedup policy, so the
+five measured valid announcements used amounts 501–505 and distinct UTRs; no dedup or detection
+code was changed.
+
+| Run | Chime duration (`chime_end - chime_start`) | Code gap (`speak_start - chime_end`) | Audio gap (`speak_audio_start - chime_end`) |
+|---:|---:|---:|---:|
+| 1 | 1,535 ms | -1 ms | 24 ms |
+| 2 | 1,547 ms | -1 ms | 25 ms |
+| 3 | 1,534 ms | -1 ms | 25 ms |
+| 4 | 1,541 ms | -1 ms | 26 ms |
+| 5 | 1,541 ms | -1 ms | 24 ms |
+| **Median / worst** | — | — | **25 ms / 26 ms** |
+
+Raw event lines from the five-run log:
+
+```
+RUN 1: chime_start t=36117001; speak_start t=36118535; chime_end t=36118536; speak_audio_start t=36118560
+RUN 2: chime_start t=36122073; speak_start t=36123619; chime_end t=36123620; speak_audio_start t=36123645
+RUN 3: chime_start t=36127215; speak_start t=36128748; chime_end t=36128749; speak_audio_start t=36128774
+RUN 4: chime_start t=36132324; speak_start t=36133864; chime_end t=36133865; speak_audio_start t=36133891
+RUN 5: chime_start t=36137422; speak_start t=36138962; chime_end t=36138963; speak_audio_start t=36138987
+```
+
+The measured median is 25 ms and the worst measured positive gap is 26 ms, within the requested
+50 ms median and 100 ms worst-case thresholds for this emulator run.
+
+### 13.5 Regression checks
+
+Each mode was exercised once after the change:
+
+- `evidence/sound/regression-voice-only.log`: `SPEECH`, `chime=false`, `speak=true`, then
+  `speak_audio_start`; no chime event.
+- `evidence/sound/regression-chime-only.log`: `CHIME_ONLY`, `chime=true`, `speak=false`, then
+  `chime_start` and `chime_end`; no speech event.
+- `evidence/sound/regression-silent.log`: `SILENT`, `chime=false`, `speak=false`, then
+  `silent`; no chime or speech event.
+
+### 13.6 Build and test results
+
+```
+$ ./gradlew :app:testDebugUnitTest --rerun-tasks
+BUILD SUCCESSFUL in 9s
+XML summary: suites=13 tests=99 failures=0 errors=0 skipped=0
+
+$ ./gradlew :app:assembleDebug
+BUILD SUCCESSFUL in 847ms
+37 actionable tasks: 3 executed, 34 up-to-date
+```
+
+### 13.7 Remaining verification
+
+I cannot hear the emulator output. The user should confirm by ear that the gap feels right and that
+the trimmed chime's audible tail is not cut off. Physical vibration, alternate TTS engines, audio
+focus interactions with another active media app, and real-device timing remain unverified.

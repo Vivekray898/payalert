@@ -1,0 +1,7 @@
+--------- beginning of main
+10-16 02:07:25.907 11649 11699 I PayAlertSound: transition=tts_initializing mode=none preview=false t=36742622
+10-16 02:07:26.758 11649 11649 I PayAlertSound: transition=tts_ready mode=none preview=false t=36743473 status=0
+10-16 02:07:26.758 11649 11649 I PayAlertSound: mode=none event=tts_ready t=36743473 preview=false status=0
+10-16 02:07:26.900 11649 11649 I PayAlertSound: mode=none event=tts_warmup_start t=36743615 preview=false
+10-16 02:07:27.409 11649 11669 I PayAlertSound: mode=none event=speak_audio_start t=36744124 preview=false leadMs=509
+10-16 02:07:27.417 11649 11684 I PayAlertSound: mode=none event=speak_end t=36744132 preview=false
