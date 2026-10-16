@@ -4,6 +4,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.vivekray898.payalert.AppGraph
+import com.vivekray898.payalert.relay.EmployeeRealtimeService
+import com.vivekray898.payalert.role.LocalDeviceRole
 import com.vivekray898.payalert.reminders.ReminderScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +25,10 @@ class BootReceiver : BroadcastReceiver() {
                 val graph = AppGraph.get(context)
                 if (graph.settings.state.value.monitoringEnabled) {
                     PaymentMonitorService.start(context)
+                }
+                // Start Realtime service for employee devices after boot
+                if (graph.settings.localDeviceRoleState.currentRole == LocalDeviceRole.EMPLOYEE) {
+                    EmployeeRealtimeService.start(context)
                 }
 
                 val pendingResult = goAsync()

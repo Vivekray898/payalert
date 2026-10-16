@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -18,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -26,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.vivekray898.payalert.R
 import com.vivekray898.payalert.ui.analytics.AnalyticsScreen
 import com.vivekray898.payalert.ui.backup.BackupScreen
@@ -46,11 +49,20 @@ import com.vivekray898.payalert.ui.team.TeamScreen
 fun PayAlertApp(
     healthNotice: String? = null,
     onHealthNoticeAction: (() -> Unit)? = null,
-    teamAuthReturn: Int = 0
+    teamAuthReturn: Int = 0,
+    pairing: PairingViewModel = viewModel()
 ) {
     var tabIndex by rememberSaveable { mutableStateOf(0) }
     var overlayName by rememberSaveable { mutableStateOf<String?>(null) }
     val overlay = overlayName?.let { OverlayRegistry.byName(it) }
+    val role by pairing.role.collectAsState()
+    val relay by pairing.relay.collectAsState()
+    // Only a state the user can act on becomes a banner; a failed delivery retries on its own.
+    val pairingNotice = if (relay.needsRepair) {
+        "Payments from your owner can't be read on this device. Re-pair to keep receiving them."
+    } else {
+        null
+    }
 
     LaunchedEffect(teamAuthReturn) {
         if (teamAuthReturn > 0) overlayName = OverlayRegistry.nameOf(Overlay.Team)
@@ -106,16 +118,28 @@ fun PayAlertApp(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                // Reserve room for the detection notice so it never hides the last card on
-                // a screen (or the export action at the foot of Analytics).
-                .padding(bottom = if (healthNotice != null) 72.dp else 0.dp)
+                // The outer Scaffold owns the system-bar placement for tab content. Mark those
+                // insets consumed before a tab with its own TopAppBar Scaffold is composed, so
+                // the status-bar inset is not applied a second time.
+                .consumeWindowInsets(padding)
+                // Reserve room for the notices so they never hide the last card on a screen
+                // (or the export action at the foot of Analytics).
+                .padding(bottom = when {
+                    healthNotice != null && pairingNotice != null -> 128.dp
+                    healthNotice != null || pairingNotice != null -> 72.dp
+                    else -> 0.dp
+                })
         ) {
             when (Tab.all[tabIndex]) {
                 Tab.HOME -> HomeScreen(
                     onOpenTransactions = { tabIndex = Tab.TRANSACTIONS.ordinal },
-                    onOpenQr = { open(Overlay.Qr) }
+                    onOpenQr = { open(Overlay.Qr) },
+                    role = role.badgeValue
                 )
-                Tab.TRANSACTIONS -> TransactionsScreen(onOpenAnalytics = { open(Overlay.Analytics) })
+                Tab.TRANSACTIONS -> TransactionsScreen(
+                    onOpenAnalytics = { open(Overlay.Analytics) },
+                    role = role.badgeValue
+                )
                 Tab.CASHBOOK -> CashbookScreen()
                 Tab.PASSBOOK -> PassbookScreen()
                 Tab.SETTINGS -> SettingsScreen(
@@ -123,7 +147,9 @@ fun PayAlertApp(
                     onOpenFaq = { open(Overlay.Faq) },
                     onOpenTerms = { open(Overlay.Terms) },
                     onOpenBackup = { open(Overlay.Backup) },
-                    onOpenTeam = { open(Overlay.Team) }
+                    onOpenTeam = { open(Overlay.Team) },
+                    role = role,
+                    relay = relay
                 )
             }
 
@@ -146,30 +172,57 @@ fun PayAlertApp(
             // the bottom of the content area so it can never cover a screen's top app bar
             // (which is where History keeps Analytics / Export / Clear filters).
             healthNotice?.let { notice ->
-                Surface(
+                NoticeBanner(
+                    text = notice,
+                    actionLabel = "Fix",
+                    onAction = onHealthNoticeAction,
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                )
+            }
+
+            // Sits above the detection notice: an unreadable owner announcement is a pairing
+            // problem, and the fix is to re-pair from the team screen.
+            pairingNotice?.let { notice ->
+                NoticeBanner(
+                    text = notice,
+                    actionLabel = "Re-pair",
+                    onAction = { open(Overlay.Team) },
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.errorContainer
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = notice,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.weight(1f)
-                        )
-                        onHealthNoticeAction?.let { action ->
-                            TextButton(onClick = action) { Text("Fix") }
-                        }
-                    }
-                }
+                        .padding(bottom = if (healthNotice != null) 56.dp else 0.dp)
+                )
+            }
+        }
+    }
+}
+
+/** One bottom banner. Shared so the detection and pairing notices cannot drift apart in style. */
+@Composable
+private fun NoticeBanner(
+    text: String,
+    actionLabel: String,
+    onAction: (() -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.errorContainer
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.weight(1f)
+            )
+            onAction?.let { action ->
+                TextButton(onClick = action) { Text(actionLabel) }
             }
         }
     }

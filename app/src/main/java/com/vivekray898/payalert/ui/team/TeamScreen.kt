@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -39,12 +40,16 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.vivekray898.payalert.role.LocalDeviceRole
 import com.vivekray898.payalert.team.PairingCode
 import com.vivekray898.payalert.team.TeamClientException
 import com.vivekray898.payalert.team.TeamConnection
 import com.vivekray898.payalert.team.TeamController
 import com.vivekray898.payalert.team.TeamInvite
+import com.vivekray898.payalert.ui.PairingViewModel
+import com.vivekray898.payalert.ui.formatTimestamp
 import com.vivekray898.payalert.ui.components.OverlayHeader
+import com.vivekray898.payalert.ui.components.RoleIndicator
 import com.vivekray898.payalert.ui.components.SectionCard
 import com.vivekray898.payalert.ui.components.SegmentedModeSelector
 import kotlinx.coroutines.delay
@@ -52,14 +57,26 @@ import java.text.DateFormat
 import java.util.Date
 
 @Composable
-fun TeamScreen(onBack: () -> Unit, vm: TeamViewModel = viewModel()) {
-    TeamContent(onBack, vm.controller)
+fun TeamScreen(
+    onBack: () -> Unit,
+    vm: TeamViewModel = viewModel(),
+    pairing: PairingViewModel = viewModel()
+) {
+    TeamContent(onBack, vm.controller, pairing)
 }
 
 @Composable
-internal fun TeamContent(onBack: () -> Unit, controller: TeamController) {
+internal fun TeamContent(
+    onBack: () -> Unit,
+    controller: TeamController,
+    pairing: PairingViewModel? = null
+) {
     val context = LocalContext.current
     val state by controller.state.collectAsState()
+    val deviceRole = pairing?.role?.collectAsState()?.value
+    val relayState = pairing?.relay?.collectAsState()?.value
+    // Forwarding counters come from the local queues, so they are read fresh whenever this opens.
+    LaunchedEffect(pairing) { pairing?.refreshStatus() }
     val authError by controller.authError.collectAsState()
     var role by remember { mutableStateOf("owner") }
     // Pairing codes are deliberately not in saved instance state or preferences.
@@ -147,7 +164,14 @@ internal fun TeamContent(onBack: () -> Unit, controller: TeamController) {
                 }
                 if (team != null) {
                     SectionCard("This device") {
-                        Text(team.device.name, style = MaterialTheme.typography.titleMedium)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(team.device.name, style = MaterialTheme.typography.titleMedium)
+                            deviceRole?.let { RoleIndicator(it.badgeValue) }
+                        }
                         Text(when {
                             team.owner != null -> "Employee device"
                             team.employees.isNotEmpty() -> "Owner device"
@@ -162,6 +186,52 @@ internal fun TeamContent(onBack: () -> Unit, controller: TeamController) {
                         if (state.needsRefresh) {
                             Text("The last action could not be confirmed. Refresh before making more changes.",
                                 color = MaterialTheme.colorScheme.error)
+                        }
+                        deviceRole?.let { active ->
+                            Text(
+                                if (active.role == LocalDeviceRole.EMPLOYEE) {
+                                    "This phone does not announce its own SMS or notifications. It " +
+                                        "announces what the owner forwards."
+                                } else {
+                                    "This phone announces its own payments. Received payments are " +
+                                        "forwarded to paired employee devices."
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    relayState?.let { forwarding ->
+                        if (forwarding.paired) {
+                            SectionCard("Forwarding") {
+                                if (forwarding.role == LocalDeviceRole.EMPLOYEE) {
+                                    Text("Received from owner: ${forwarding.receivedCount} kept for 24 hours.")
+                                    if (forwarding.needsRepair) {
+                                        Text(
+                                            "Some forwarded payments could not be read on this " +
+                                                "device. Leave the team and pair again to restore them.",
+                                            color = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                } else {
+                                    Text("Waiting to send: ${forwarding.pendingDeliveries}")
+                                    Text("Retrying: ${forwarding.failedDeliveries}")
+                                    Text(
+                                        forwarding.lastForwardedAt?.let { "Last forwarded ${formatTimestamp(it)}" }
+                                            ?: "Nothing forwarded yet."
+                                    )
+                                }
+                                forwarding.lastError?.let {
+                                    Text("Relay: $it", color = MaterialTheme.colorScheme.error)
+                                }
+                                Text(
+                                    "Only money received is forwarded, and only as an encrypted " +
+                                        "envelope. The server relays it and keeps no copy once this " +
+                                        "device confirms delivery.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                     if (team.owner != null) {
@@ -227,8 +297,8 @@ internal fun TeamContent(onBack: () -> Unit, controller: TeamController) {
                 }
             }
             SectionCard("Your data stays local") {
-                Text("Pairing shares device names and a connection record, not your payment history, SMS, cashbook, or reminders. Payment forwarding and remote announcements are not enabled.")
-                Text("Device lists refresh when you open this screen or tap Refresh devices. Signing out doesn't remove a connection; use Remove device or Leave team first.",
+                Text("Pairing shares device names and a connection record, not your payment history, SMS, cashbook, or reminders. A forwarded payment is encrypted on the owner's phone and can only be read on the paired employee phone; the server stores an envelope it cannot open.")
+                Text("Device lists refresh when you open this screen or tap Refresh devices. Signing out doesn't remove a connection; use Remove device or Leave team first. Leaving or removing clears queued payments, forgets the pairing key, and deletes announcements received from that owner.",
                     style = MaterialTheme.typography.bodyMedium)
             }
         }

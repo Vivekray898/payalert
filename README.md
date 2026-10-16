@@ -32,14 +32,17 @@ before offline commands can work; clean-machine setup needs network access.
 1. Create a Supabase project. In its SQL editor, apply **`supabase/schema.sql` first**, then
    **`supabase/team_pairing.sql`**. Both are non-destructive and may be reapplied. If you ever
    reapply the base schema, reapply the team migration afterward to restore restricted device
-   privileges. Pairing writes go through five authorization-checked RPCs, not direct table writes.
-2. Enable the **Google** provider in Supabase Authentication. Configure its web OAuth client ID
+   privileges. Pairing writes go through five authorization-checked RPCs, not direct table writes;
+   the relay adds eight more.
+2. Apply **`supabase/encrypted_relay.sql`** third if you want owner → employee forwarding. It adds
+   the relay tables, their RLS, and eight `relay_*` RPCs, and is also safe to reapply.
+3. Enable the **Google** provider in Supabase Authentication. Configure its web OAuth client ID
    and secret in the Supabase dashboard only. In Google Cloud, allow your project's
    `https://<project-ref>.supabase.co/auth/v1/callback` redirect URI.
-3. In Supabase Authentication → URL Configuration → Redirect URLs, allow exactly
+4. In Supabase Authentication → URL Configuration → Redirect URLs, allow exactly
    **`com.vivekray898.payalert://auth/callback`**. Do not enable implicit-flow token callbacks.
    Android opens the system browser and uses PKCE to exchange the returned one-time code.
-4. Set the two **public** client values before building. This workspace can keep them in the
+5. Set the two **public** client values before building. This workspace can keep them in the
    ignored root `secrets.properties` file, so normal builds do not need exports. The file is already
    configured locally in this checkout; do not commit it. For another checkout, copy the following
    template and replace the values:
@@ -72,10 +75,49 @@ before offline commands can work; clean-machine setup needs network access.
 - Owners can **Remove** an employee; employees can **Leave team**. Both ask for confirmation.
   Signing out clears sign-in only, **not** cloud connections. Disconnect before signing out.
 
-Pairing shares profile/device metadata and membership only. **Payment uploads, cross-device payment
-history, payment forwarding, remote announcements, realtime updates, and push delivery are not part
-of this feature.** Existing payment/cashbook cloud tables remain unused. Device lists refresh on
-opening the screen or tapping Refresh, not continuously. Pairing never changes local payment data.
+Pairing on its own shares profile/device metadata and membership only. **Cross-device payment
+history, raw message uploads, realtime subscriptions, and push delivery are not part of this
+feature.** Existing payment/cashbook cloud tables remain unused. Device lists refresh on opening
+the screen or tapping Refresh, and the periodic relay job refreshes the pairing in the background.
+Pairing never changes local payment data.
+
+### Encrypted owner → employee forwarding
+
+Pairing also drives the local role, and the role decides what a phone listens to:
+
+- **Owner device** behaves as before: it detects its own SMS and notification payments, announces
+  and stores them locally, and additionally forwards *money received* to each paired employee.
+- **Employee device** stops handling its own SMS and notifications entirely (the receivers and the
+  pipeline drop them before parsing) and announces only what the owner forwards.
+
+What crosses the network is an opaque envelope. Each device generates an X25519 identity key on the
+device; the private half is wrapped by a non-exportable Android Keystore AES key and is never
+logged, exported, or sent. The owner binds the employee's current public key through an
+authenticated RPC, derives a per-message AES-256-GCM key with HKDF-SHA256 from the X25519 shared
+secret, and encrypts a small payload (amount, currency, merchant, bank, reference, detection time).
+The owner/employee/message identifiers are length-framed into both the HKDF info and the GCM
+additional data, so a ciphertext cannot be replayed or re-associated with another pair. The server
+stores routing metadata plus `bytea` only — no amount, merchant, sender, or raw message in any
+column — and deletes the row when the employee confirms delivery or when it expires.
+
+The relay is a hop, not a history store:
+
+- Only credits are forwarded, only after pairing, and never anything already in local history.
+- Failed sends stay in a Room queue and retry with exponential backoff; the queue survives restarts.
+- The 24-hour retention clock starts when the employee *receives* the message. An app-open sweep and
+  a `WorkManager` job delete expired rows, and History also filters by expiry at read time.
+- Unreadable envelopes are never guessed at. The ciphertext is kept locally for a later recovery,
+  no payment detail is stored, and the app asks the user to re-pair.
+- Leaving or being removed drops queued payments, forgets the peer key, rotates this device's
+  identity, and purges the removed owner's announcements on the employee device.
+
+Encryption needs no configuration. A build without Supabase values never generates a key, never
+sends an envelope, and keeps every local-only feature working.
+
+**Trust model.** The key exchange is authenticated by the pairing session (the owner can only bind
+an employee that is actually paired to it), so the server cannot read a payload at rest. It is not
+protected against a server that actively substitutes keys *while pairing*: that requires out-of-band
+verification of a key fingerprint, which this feature does not implement.
 
 Codes are stored as server-side hashes, consumed transactionally, and limited to 10 join attempts
 per account per 10-minute window. Tokens and pending PKCE verifiers use Keystore AES/GCM storage
@@ -103,9 +145,12 @@ export TEST_DATABASE_URL='postgresql://localhost/payalert_pairing_test'
 make test-db
 ```
 
-This applies an Auth shim and both migrations twice, then verifies two-account pairing/readback,
-expiry, code reuse, rate limits, role restrictions, direct-access denial, owner removal and employee
-leave. Fixtures roll back; schema setup remains. **Never run the shim against a real Supabase
+This applies an Auth shim and all three migrations twice, then verifies two-account
+pairing/readback, expiry, code reuse, rate limits, role restrictions, direct-access denial, owner
+removal and employee leave. It also covers the relay: key registration and rotation, peer-key
+binding and lookup, owner-only enqueue, idempotent enqueue, employee-only lease/fetch/ack, expiry
+cleanup, cascade on unpairing, and that the relay tables expose no plaintext payload column.
+Fixtures roll back; schema setup remains. **Never run the shim against a real Supabase
 project**: it replaces `auth.uid()`. For an already migrated disposable Supabase database, use the
 non-shim command documented at the top of `supabase/tests/team_pairing.sql`.
 
@@ -118,7 +163,9 @@ To intentionally refresh dependency locks after a dependency change, run `make l
 
 Build/JVM tests, emulator Compose tests and local PostgreSQL tests are verified. A complete live
 Google OAuth → Supabase/PostgREST → two physical phones flow still needs project configuration and
-testing. The Docker recipe has not been executed in this workspace (Docker is unavailable).
+testing, and so does a real two-device forwarding round trip: the JVM relay tests use in-memory
+transports and the SQL suite exercises the RPC contracts without an app. The Docker recipe has not
+been executed in this workspace (Docker is unavailable).
 
 `make lint` currently reports three pre-existing errors: a non-observable default locale in
 `ui/analytics/AnalyticsScreen.kt` and two missing optional-telephony hardware declarations for SMS

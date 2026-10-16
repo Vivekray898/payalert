@@ -46,8 +46,23 @@ private val FAQ = listOf(
         "How do I connect an employee's phone?",
         "Open Settings → Team & devices on both phones and sign in. The owner creates a code; " +
             "the employee chooses I'm an employee and enters it within 10 minutes. Tap Refresh " +
-            "devices on the owner's phone after joining. Pairing connects devices only; payment " +
-            "forwarding and remote announcements are not enabled."
+            "devices on the owner's phone after joining. Money received on the owner's phone is " +
+            "then announced on the employee's phone, and the employee stops announcing its own " +
+            "SMS and notifications."
+    ),
+    FaqEntry(
+        "What is forwarded to the employee's phone?",
+        "Only money received, only after pairing, and only as an encrypted envelope that is " +
+            "read with a key that lives on the two phones. Money paid out is never forwarded, " +
+            "and neither is anything from before pairing. The server relays an envelope it cannot " +
+            "open and drops it once the employee's phone confirms delivery. On the employee's " +
+            "phone the announcement is kept for 24 hours and then deleted."
+    ),
+    FaqEntry(
+        "What happens if I leave a team?",
+        "Leaving or being removed stops forwarding immediately: queued payments are discarded, " +
+            "the pairing key is replaced, and announcements already received from that owner are " +
+            "deleted from the employee's phone."
     ),
     FaqEntry(
         "Which banks and apps are supported?",

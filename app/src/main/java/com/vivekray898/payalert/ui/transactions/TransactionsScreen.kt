@@ -42,10 +42,12 @@ import com.vivekray898.payalert.data.PaymentEvent
 import com.vivekray898.payalert.export.TransactionExporter
 import com.vivekray898.payalert.ui.SourceLabel
 import com.vivekray898.payalert.ui.components.EmptyState
+import com.vivekray898.payalert.ui.components.RoleIndicator
 import com.vivekray898.payalert.ui.components.SearchField
 import com.vivekray898.payalert.ui.components.StatChip
 import com.vivekray898.payalert.ui.formatAmount
 import com.vivekray898.payalert.ui.formatTimestamp
+import com.vivekray898.payalert.relay.ReceivedAnnouncement
 
 /** Small-caps group header above a chip row, so direction and range never read as one strip. */
 @Composable
@@ -75,9 +77,11 @@ private fun ChipRow(content: @Composable () -> Unit) {
 @Composable
 fun TransactionsScreen(
     onOpenAnalytics: () -> Unit = {},
-    viewModel: TransactionsViewModel = viewModel()
+    viewModel: TransactionsViewModel = viewModel(),
+    role: String? = null
 ) {
     val events by viewModel.events.collectAsState()
+    val receivedAnnouncements by viewModel.receivedAnnouncements.collectAsState()
     val totals by viewModel.filteredTotals.collectAsState()
     val kind by viewModel.kind.collectAsState()
     val term by viewModel.term.collectAsState()
@@ -89,7 +93,15 @@ fun TransactionsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("History") },
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("History")
+                        RoleIndicator(role)
+                    }
+                },
                 actions = {
                     IconButton(onClick = onOpenAnalytics) {
                         Icon(
@@ -127,84 +139,194 @@ fun TransactionsScreen(
             )
         }
     ) { padding ->
-        Column(
+        // The filters are the first list content rather than a sibling overlay. They now scroll
+        // away with the history, and the first payment row always has a real position below them.
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            SearchField(
-                value = term,
-                onValueChange = { viewModel.setTerm(it) },
-                label = "Search payments",
-                placeholder = "Merchant, reference or message"
-            )
-
-            ChipGroupHeader("Direction")
-            ChipRow {
-                FilterChip(selected = kind == null, onClick = { viewModel.setKind(null) }, label = { Text("Both") })
-                FilterChip(selected = kind == "credit", onClick = { viewModel.setKind("credit") }, label = { Text("In") })
-                FilterChip(selected = kind == "debit", onClick = { viewModel.setKind("debit") }, label = { Text("Out") })
+            item(key = "search") {
+                SearchField(
+                    value = term,
+                    onValueChange = { viewModel.setTerm(it) },
+                    label = "Search payments",
+                    placeholder = "Merchant, reference or message"
+                )
             }
 
-            ChipGroupHeader("Range")
-            ChipRow {
-                HistoryRange.entries.forEach { option ->
-                    FilterChip(
-                        selected = range == option,
-                        onClick = { viewModel.setRange(option) },
-                        label = { Text(option.label) }
+            item(key = "filters") {
+                Column {
+                    ChipGroupHeader("Direction")
+                    ChipRow {
+                        FilterChip(selected = kind == null, onClick = { viewModel.setKind(null) }, label = { Text("Both") })
+                        FilterChip(selected = kind == "credit", onClick = { viewModel.setKind("credit") }, label = { Text("In") })
+                        FilterChip(selected = kind == "debit", onClick = { viewModel.setKind("debit") }, label = { Text("Out") })
+                    }
+
+                    ChipGroupHeader("Range")
+                    ChipRow {
+                        HistoryRange.entries.forEach { option ->
+                            FilterChip(
+                                selected = range == option,
+                                onClick = { viewModel.setRange(option) },
+                                label = { Text(option.label) }
+                            )
+                        }
+                    }
+
+                    if (accounts.isNotEmpty()) {
+                        ChipGroupHeader("Account")
+                        ChipRow {
+                            FilterChip(selected = account == null, onClick = { viewModel.setAccount(null) }, label = { Text("All") })
+                            accounts.forEach { name ->
+                                FilterChip(
+                                    selected = account == name,
+                                    onClick = { viewModel.setAccount(name) },
+                                    label = { Text(name) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            item(key = "totals") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp)
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    StatChip("In", formatAmount(totals.first), MaterialTheme.colorScheme.tertiary)
+                    StatChip("Out", formatAmount(totals.second), MaterialTheme.colorScheme.secondary)
+                    StatChip(
+                        "Items",
+                        events.size.toString(),
+                        MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
-            if (accounts.isNotEmpty()) {
-                ChipGroupHeader("Account")
-                ChipRow {
-                    FilterChip(selected = account == null, onClick = { viewModel.setAccount(null) }, label = { Text("All") })
-                    accounts.forEach { name ->
-                        FilterChip(
-                            selected = account == name,
-                            onClick = { viewModel.setAccount(name) },
-                            label = { Text(name) }
-                        )
-                    }
+            if (receivedAnnouncements.isNotEmpty()) {
+                item(key = "received-owner-header") {
+                    FromOwnerSectionHeader()
                 }
-            }
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 12.dp)
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                StatChip("In", formatAmount(totals.first), MaterialTheme.colorScheme.tertiary)
-                StatChip("Out", formatAmount(totals.second), MaterialTheme.colorScheme.secondary)
-                StatChip(
-                    "Items",
-                    events.size.toString(),
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                items(
+                    items = receivedAnnouncements,
+                    key = { "received-owner-${it.messageId}" }
+                ) { announcement ->
+                    ReceivedAnnouncementRow(announcement)
+                }
             }
 
             if (events.isEmpty()) {
-                EmptyState(
-                    icon = R.drawable.ic_search,
-                    title = "No transactions",
-                    description = "Nothing matches these filters yet. Detected payments appear here as soon as the monitor sees them."
-                )
+                item(key = "empty-transactions") {
+                    EmptyState(
+                        icon = R.drawable.ic_search,
+                        title = "No transactions",
+                        description = "Nothing matches these filters yet. Detected payments appear here as soon as the monitor sees them."
+                    )
+                }
             } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 24.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(events, key = { it.id }) { event ->
-                        TransactionRow(event)
-                    }
+                items(events, key = { it.id }) { event ->
+                    TransactionRow(event)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun FromOwnerSectionHeader() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = "From owner",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.weight(1f)
+        )
+        OwnerAnnouncementBadge()
+    }
+}
+
+@Composable
+private fun OwnerAnnouncementBadge() {
+    androidx.compose.material3.Surface(
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+        shape = MaterialTheme.shapes.small
+    ) {
+        Text(
+            text = "From owner",
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+        )
+    }
+}
+
+/**
+ * A history row for a payment the owner forwarded.
+ *
+ * Only the fields decrypted on this device are shown; the announcement itself is never uploaded and
+ * the owner's raw message is not part of the relay, so there is nothing else to display.
+ */
+@Composable
+internal fun ReceivedAnnouncementRow(announcement: ReceivedAnnouncement) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.34f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OwnerAnnouncementBadge()
+                Text(
+                    text = receivedAnnouncementDescription(announcement),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f)
+                )
+                if (announcement.hasAmount()) {
+                    Text(
+                        text = "+${formatAmount(requireNotNull(announcement.amount))}",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
+                }
+            }
+            Text(
+                text = announcement.ownerLabel?.let { "From $it" } ?: "From the owner device",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = announcement.eventAt
+                    ?.takeIf { it in 1 until announcement.receivedAt }
+                    ?.let { "Paid ${formatTimestamp(it)} · received ${formatTimestamp(announcement.receivedAt)}" }
+                    ?: "Received ${formatTimestamp(announcement.receivedAt)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

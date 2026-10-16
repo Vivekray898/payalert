@@ -2,7 +2,12 @@ package com.vivekray898.payalert.team
 
 import android.content.Context
 import com.google.gson.Gson
+import com.google.gson.GsonBuilder
 import com.vivekray898.payalert.BuildConfig
+import com.vivekray898.payalert.relay.RelayInboxMessage
+import com.vivekray898.payalert.relay.RelayPeerKeyInfo
+import com.vivekray898.payalert.relay.RelayTransport
+import com.vivekray898.payalert.relay.RelayTransportException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +31,9 @@ import javax.net.ssl.HttpsURLConnection
  * Google sign-in is opened by the caller in the external browser, never a WebView.
  * Local sign-out revokes auth but deliberately does NOT remove server-side team pairings.
  * Disconnect a pairing explicitly with removeConnection; payment data always stays local.
+ *
+ * It also implements [RelayTransport] on the same authenticated session, so the rotating refresh
+ * token stays under one mutex and the relay cannot race a sign-in or a refresh.
  */
 class SupabaseTeamRepository internal constructor(
     private val config: TeamConfig?,
@@ -33,7 +41,7 @@ class SupabaseTeamRepository internal constructor(
     private val transport: TeamTransport,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val now: () -> Long = System::currentTimeMillis
-) : TeamRepository {
+) : TeamRepository, RelayTransport {
     constructor(context: Context) : this(
         TeamConfig.parse(BuildConfig.SUPABASE_URL, BuildConfig.SUPABASE_PUBLISHABLE_KEY),
         TeamSessionStore(context), HttpsTeamTransport()
@@ -46,6 +54,17 @@ class SupabaseTeamRepository internal constructor(
     override val authError: StateFlow<String?> = mutableAuthError.asStateFlow()
     private val mutex = Mutex()
     private val gson = Gson()
+
+    /**
+     * Relay RPC bodies must carry a nullable argument as an explicit JSON null.
+     *
+     * Gson drops null map entries unless serializing nulls is enabled - including an explicit
+     * [com.google.gson.JsonNull], because the writer discards any deferred null. The relay RPCs take
+     * several arguments with no SQL default (relay_bind_peer_key declares no default for
+     * p_employee_key_id), so an omitted argument makes PostgREST reject the call before the function
+     * runs and the owner can never bind its employee's key. Only relay calls use this instance.
+     */
+    private val relayGson = GsonBuilder().serializeNulls().create()
     private var auth = TeamAuthState()
 
     init {
@@ -163,6 +182,115 @@ class SupabaseTeamRepository internal constructor(
         return response.body
     }
 
+    /**
+     * Relay calls share the authenticated session but map failures through the relay vocabulary,
+     * so a stale key binding is distinguishable from an unreachable service.
+     */
+    private suspend fun relayRpc(name: String, parameters: (String) -> Map<String, Any?>): String {
+        val session = validSession()
+        val id = storage.deviceId(requireConfig().origin, session.account.userId)
+        val response = request("/rest/v1/rpc/$name", parameters(id), session.accessToken, relayGson)
+        RelayProtocol.failure(response)?.let { throw it }
+        return response.body
+    }
+
+    override suspend fun registerKey(keyId: String, publicKey: String) = onIo {
+        requireUuid(keyId)
+        if (publicKey.isBlank() || publicKey.length > MAX_PUBLIC_KEY_CHARS) throw invalidRelay()
+        relayRpc(RELAY_REGISTER_KEY) { id ->
+            mapOf(
+                "p_device_id" to id,
+                "p_key_id" to keyId,
+                "p_public_key" to RelayProtocol.bytea(publicKey.toByteArray(UTF_8))
+            )
+        }
+        Unit
+    }
+
+    override suspend fun bindPeerKey(
+        employeeDeviceId: String,
+        employeeKeyId: String?
+    ): RelayPeerKeyInfo = onIo {
+        requireUuid(employeeDeviceId)
+        employeeKeyId?.let { requireUuid(it) }
+        val body = relayRpc(RELAY_BIND_PEER_KEY) { id ->
+            mapOf(
+                "p_owner_device_id" to id,
+                "p_employee_device_id" to employeeDeviceId,
+                // relay_bind_peer_key declares no default for p_employee_key_id, so the argument has
+                // to be present. relayGson sends it as an explicit JSON null, which the function
+                // documents as "bind whichever key is current".
+                "p_employee_key_id" to employeeKeyId
+            )
+        }
+        RelayProtocol.boundPeerKey(body, employeeDeviceId)
+    }
+
+    override suspend fun peerKey(): RelayPeerKeyInfo? = onIo {
+        val body = relayRpc(RELAY_PEER_KEY) { id -> mapOf("p_employee_device_id" to id) }
+        if (body.isBlank() || body.trim() == "null") null else RelayProtocol.peerKey(body)
+    }
+
+    override suspend fun enqueue(
+        employeeDeviceId: String,
+        clientMessageId: String,
+        envelope: String,
+        ttlSeconds: Long
+    ) = onIo {
+        requireUuid(employeeDeviceId)
+        requireUuid(clientMessageId)
+        if (envelope.isBlank() || envelope.length > MAX_ENVELOPE_CHARS) throw invalidRelay()
+        if (ttlSeconds !in 1..MAX_TTL_SECONDS) throw invalidRelay()
+        relayRpc(RELAY_ENQUEUE) { id ->
+            mapOf(
+                "p_owner_device_id" to id,
+                "p_employee_device_id" to employeeDeviceId,
+                "p_client_message_id" to clientMessageId,
+                "p_encrypted_envelope" to RelayProtocol.bytea(envelope.toByteArray(UTF_8)),
+                "p_ttl_seconds" to ttlSeconds.toInt()
+            )
+        }
+        Unit
+    }
+
+    override suspend fun fetch(limit: Int): List<RelayInboxMessage> = onIo {
+        RelayProtocol.inbox(
+            relayRpc(RELAY_FETCH) { id ->
+                mapOf(
+                    "p_employee_device_id" to id,
+                    "p_limit" to limit.coerceIn(1, MAX_FETCH_LIMIT),
+                    "p_lease_seconds" to LEASE_SECONDS
+                )
+            }
+        )
+    }
+
+    override suspend fun ack(serverMessageId: String, leaseToken: String): Boolean = onIo {
+        requireUuid(serverMessageId)
+        requireUuid(leaseToken)
+        RelayProtocol.boolean(
+            relayRpc(RELAY_ACK) { id ->
+                mapOf(
+                    "p_employee_device_id" to id,
+                    "p_message_id" to serverMessageId,
+                    "p_lease_token" to leaseToken
+                )
+            }
+        )
+    }
+
+    override suspend fun cleanupExpired(): Int = onIo {
+        RelayProtocol.integer(
+            relayRpc(RELAY_CLEANUP) { mapOf("p_limit" to CLEANUP_LIMIT) }
+        )
+    }
+
+    private fun requireUuid(value: String) {
+        if (!isUuid(value)) throw invalidRelay()
+    }
+
+    private fun invalidRelay() = RelayTransportException("A relay request was not valid.")
+
     /** Called under the repository mutex: rotating refresh tokens are never used concurrently. */
     private suspend fun validSession(): TeamSession {
         val settings = requireConfig()
@@ -190,7 +318,12 @@ class SupabaseTeamRepository internal constructor(
         }
     }
 
-    private suspend fun request(path: String, body: Any, bearer: String? = null): TeamHttpResponse {
+    private suspend fun request(
+        path: String,
+        body: Any,
+        bearer: String? = null,
+        json: Gson = gson
+    ): TeamHttpResponse {
         val settings = requireConfig()
         currentCoroutineContext().ensureActive()
         val headers = mutableMapOf("apikey" to settings.publishableKey)
@@ -200,7 +333,7 @@ class SupabaseTeamRepository internal constructor(
             }
             headers["Authorization"] = "Bearer $bearer"
         }
-        val response = transport.execute(TeamHttpRequest(settings.origin + path, headers, gson.toJson(body)))
+        val response = transport.execute(TeamHttpRequest(settings.origin + path, headers, json.toJson(body)))
         currentCoroutineContext().ensureActive()
         return response
     }
@@ -220,6 +353,9 @@ class SupabaseTeamRepository internal constructor(
                 block()
             } catch (cancelled: CancellationException) {
                 throw cancelled
+            } catch (error: RelayTransportException) {
+                // Relay failures carry their own caller-facing meaning; keep it intact.
+                throw error
             } catch (error: Exception) {
                 throw TeamClientException(safeMessage(error, "Unable to reach the team service. Check your connection and try again."))
             }
@@ -232,6 +368,24 @@ class SupabaseTeamRepository internal constructor(
     private fun isUuid(value: String): Boolean = try {
         UUID.fromString(value).toString().equals(value, ignoreCase = true)
     } catch (_: IllegalArgumentException) { false }
+
+    private companion object {
+        const val RELAY_REGISTER_KEY = "relay_register_key"
+        const val RELAY_BIND_PEER_KEY = "relay_bind_peer_key"
+        const val RELAY_PEER_KEY = "relay_peer_key"
+        const val RELAY_ENQUEUE = "relay_enqueue"
+        const val RELAY_FETCH = "relay_fetch"
+        const val RELAY_ACK = "relay_ack"
+        const val RELAY_CLEANUP = "relay_cleanup_expired"
+
+        /** Short enough that a crashed receiver re-claims quickly instead of waiting on a stale lease. */
+        const val LEASE_SECONDS = 60
+        const val MAX_FETCH_LIMIT = 100
+        const val CLEANUP_LIMIT = 500
+        const val MAX_TTL_SECONDS = 604_800L
+        const val MAX_PUBLIC_KEY_CHARS = 4_096
+        const val MAX_ENVELOPE_CHARS = 1_048_576
+    }
 }
 
 /** Blocking transport. Every invocation is inside Dispatchers.IO; redirects are never followed. */

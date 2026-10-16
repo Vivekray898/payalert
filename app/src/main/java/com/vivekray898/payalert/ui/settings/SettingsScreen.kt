@@ -46,7 +46,11 @@ import com.vivekray898.payalert.settings.AnnouncementFormatter
 import com.vivekray898.payalert.settings.AppSettings
 import com.vivekray898.payalert.settings.SoundMode
 import com.vivekray898.payalert.R
+import com.vivekray898.payalert.relay.RelayStatus
+import com.vivekray898.payalert.role.DeviceRoleSnapshot
+import com.vivekray898.payalert.role.LocalDeviceRole
 import com.vivekray898.payalert.ui.PermissionStatus
+import com.vivekray898.payalert.ui.components.RoleIndicator
 import com.vivekray898.payalert.ui.components.SectionCard
 import com.vivekray898.payalert.ui.components.SliderRow
 import com.vivekray898.payalert.ui.components.StatusOkColor
@@ -89,7 +93,9 @@ fun SettingsScreen(
     onOpenFaq: () -> Unit,
     onOpenTerms: () -> Unit,
     onOpenBackup: () -> Unit,
-    onOpenTeam: () -> Unit
+    onOpenTeam: () -> Unit,
+    role: DeviceRoleSnapshot = DeviceRoleSnapshot(),
+    relay: RelayStatus = RelayStatus()
 ) {
     val context = LocalContext.current
     val graph = remember { AppGraph.get(context) }
@@ -130,6 +136,31 @@ fun SettingsScreen(
 
         SectionCard(title = "Team & devices") {
             Text("Connect owner and employee phones with a private, single-use pairing code.")
+            // The role decides whether this phone announces its own payments, so it is stated
+            // plainly here as well as on Home and History.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("This device", style = MaterialTheme.typography.bodyLarge)
+                RoleIndicator(role.badgeValue)
+            }
+            if (role.role == LocalDeviceRole.EMPLOYEE) {
+                Text(
+                    "Owner: ${role.ownerName ?: "paired device"} — this phone announces only the " +
+                        "payments the owner forwards.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else if (relay.pendingDeliveries > 0 || relay.failedDeliveries > 0) {
+                Text(
+                    "Forwarding: ${relay.pendingDeliveries} waiting, " +
+                        "${relay.failedDeliveries} retrying.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             OutlinedButton(onClick = onOpenTeam, modifier = Modifier.fillMaxWidth()) {
                 Text("Manage team & devices")
             }
@@ -311,7 +342,19 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.primary
             )
             Button(
-                onClick = { graph.tts.announce("Payment received. 1,234.50 from Sample Merchant.") },
+                // Built by the same formatter the pipeline uses, so the sample can never drift
+                // from what a real payment sounds like.
+                onClick = {
+                    graph.tts.announce(
+                        AnnouncementFormatter.format(
+                            template = "",
+                            amount = 1234.5,
+                            merchant = "Sample Merchant",
+                            bankOrUpi = null,
+                            kind = "credit"
+                        )
+                    )
+                },
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Test announcement") }
             TextButton(onClick = {

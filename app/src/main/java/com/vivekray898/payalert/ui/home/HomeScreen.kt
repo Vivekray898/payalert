@@ -38,6 +38,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.vivekray898.payalert.R
 import com.vivekray898.payalert.data.PaymentEvent
 import com.vivekray898.payalert.ui.components.EmptyState
+import com.vivekray898.payalert.ui.components.RoleIndicator
 import com.vivekray898.payalert.ui.components.SectionCard
 import com.vivekray898.payalert.ui.components.SectionHeader
 import com.vivekray898.payalert.ui.components.StatChip
@@ -108,6 +109,7 @@ private fun RecentPaymentCard(
 fun HomeScreen(
     onOpenTransactions: () -> Unit,
     onOpenQr: () -> Unit,
+    role: String? = null,
     viewModel: HomeViewModel = viewModel()
 ) {
     val state by viewModel.state.collectAsState()
@@ -136,11 +138,18 @@ fun HomeScreen(
         contentPadding = PaddingValues(vertical = 16.dp)
     ) {
         item {
-            Text(
-                text = "PayAlert",
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.primary
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "PayAlert",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                // Always visible so the user can never be unsure which mode this phone is in.
+                RoleIndicator(role)
+            }
         }
 
         // This-month totals. Net is the headline figure; the two components are chips.

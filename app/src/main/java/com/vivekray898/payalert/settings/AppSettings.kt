@@ -2,6 +2,9 @@ package com.vivekray898.payalert.settings
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.vivekray898.payalert.role.LocalDeviceRole
+import com.vivekray898.payalert.role.LocalDeviceRoleState
+import com.vivekray898.payalert.role.PersistedLocalDeviceRoleState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -54,7 +57,9 @@ data class SettingsSnapshot(
     /** Shared fallback template; blank means the built-in wording for the direction. */
     val announcementTemplate: String = "",
     val creditTemplate: String = "",
-    val debitTemplate: String = ""
+    val debitTemplate: String = "",
+    /** Local payment input is enabled only for the owner role. */
+    val localDeviceRole: LocalDeviceRole = LocalDeviceRole.OWNER
 ) {
     /** The template that applies to [kind], falling back to the shared one. */
     fun templateFor(kind: String): String {
@@ -67,9 +72,23 @@ class AppSettings(context: Context) {
 
     private val prefs: SharedPreferences =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val rolePreferences: SharedPreferences = context.applicationContext
+        .getSharedPreferences(PersistedLocalDeviceRoleState.PREFS_NAME, Context.MODE_PRIVATE)
+    /** AppGraph/team integration hook for confirmed pairing changes. */
+    val localDeviceRoleState: LocalDeviceRoleState = PersistedLocalDeviceRoleState(context)
 
     private val _state = MutableStateFlow(load())
     val state: StateFlow<SettingsSnapshot> = _state.asStateFlow()
+
+    init {
+        // Team code may update the role through a separate state handle. Keep the snapshot
+        // consumed by the existing AppGraph pipeline current without changing AppGraph.
+        rolePreferences.registerOnSharedPreferenceChangeListener { _, key ->
+            if (key == PersistedLocalDeviceRoleState.KEY_ROLE) {
+                _state.value = load()
+            }
+        }
+    }
 
     private fun load(): SettingsSnapshot = SettingsSnapshot(
         monitoringEnabled = prefs.getBoolean(KEY_MONITORING, true),
@@ -87,7 +106,8 @@ class AppSettings(context: Context) {
         dedupWindowMinutes = prefs.getInt(KEY_DEDUP_WINDOW, 5),
         announcementTemplate = prefs.getString(KEY_TEMPLATE, "") ?: "",
         creditTemplate = prefs.getString(KEY_TEMPLATE_CREDIT, "") ?: "",
-        debitTemplate = prefs.getString(KEY_TEMPLATE_DEBIT, "") ?: ""
+        debitTemplate = prefs.getString(KEY_TEMPLATE_DEBIT, "") ?: "",
+        localDeviceRole = localDeviceRoleState.currentRole
     )
 
     private inline fun edit(block: SharedPreferences.Editor.() -> Unit) {

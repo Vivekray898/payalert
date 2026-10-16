@@ -39,3 +39,4 @@ secrets.properties
 
 # Temporary extraction files
 .apk_extract/
+supabase/.temp/

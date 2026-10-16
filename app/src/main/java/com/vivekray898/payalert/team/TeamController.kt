@@ -1,5 +1,7 @@
 package com.vivekray898.payalert.team
 
+import com.vivekray898.payalert.role.LocalDeviceRole
+import com.vivekray898.payalert.role.LocalDeviceRoleState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -17,11 +19,20 @@ data class TeamState(
     val message: String? = null
 )
 
-/** UI-independent state machine. Never persists codes, auth tokens, or team snapshots. */
+/**
+ * UI-independent state machine. Never persists codes, auth tokens, or team snapshots.
+ *
+ * It is also the single place where a confirmed pairing becomes a local device role: an owner
+ * device keeps detecting its own payments, an employee device stops. The role write is synchronous,
+ * so the next SMS or notification is already judged under the new role, and [onPairingChanged] is
+ * notified so the encrypted relay can start, stop, or purge.
+ */
 class TeamController(
     private val repository: TeamRepository,
     private val scope: CoroutineScope,
     initialDeviceName: String,
+    private val roleState: LocalDeviceRoleState? = null,
+    private val onPairingChanged: (suspend (TeamSnapshot?, LocalDeviceRole) -> Unit)? = null,
     private val saveDeviceName: (String) -> Unit = {}
 ) {
     val configured = repository.configured
@@ -59,6 +70,7 @@ class TeamController(
             copy(team = snapshot, needsRefresh = false,
                 invite = invite.takeIf { team?.employees == snapshot.employees && snapshot.owner == null })
         }
+        syncPairing(snapshot)
     }
 
     fun renameDevice(name: String) {
@@ -72,12 +84,23 @@ class TeamController(
             saveDeviceName(trimmed)
             deviceName = trimmed
             update { copy(team = snapshot, needsRefresh = false, message = "Device name saved.") }
+            syncPairing(snapshot)
         }
     }
 
-    fun createInvite() = perform(ready = true) {
-        val invite = repository.createInvite()
-        update { copy(invite = invite) }
+    fun createInvite() {
+        // An employee device belongs to another owner's team and must leave it before inviting.
+        if (state.value.team?.owner != null) {
+            update {
+                copy(error = "This device is connected as an employee. Leave that team before " +
+                    "pairing it as an owner.")
+            }
+            return
+        }
+        perform(ready = true) {
+            val invite = repository.createInvite()
+            update { copy(invite = invite) }
+        }
     }
 
     fun cancelInvite() = perform(ready = true) {
@@ -86,6 +109,14 @@ class TeamController(
     }
 
     fun join(code: String) {
+        // An owner with paired employees cannot also become somebody's employee through one device.
+        if (state.value.team?.employees?.isNotEmpty() == true) {
+            update {
+                copy(error = "Remove every paired employee device before joining another owner. " +
+                    "A device is either an owner or an employee.")
+            }
+            return
+        }
         if (!PairingCode.isValid(code)) {
             update { copy(error = "Enter all 12 letters and numbers from the owner's pairing code.") }
             return
@@ -107,6 +138,21 @@ class TeamController(
         operation()
         val snapshot = repository.loadTeam(deviceName)
         update { copy(team = snapshot, needsRefresh = false, message = message) }
+        syncPairing(snapshot)
+    }
+
+    /**
+     * Persists the role implied by [snapshot] and notifies the relay.
+     *
+     * A null snapshot (signed out, or no answer yet) leaves the stored role untouched: signing out
+     * does not remove a server-side pairing, so it must not silently turn an employee device back
+     * into a device that announces its own local payments.
+     */
+    private suspend fun syncPairing(snapshot: TeamSnapshot?) {
+        if (snapshot == null) return
+        val role = if (snapshot.owner != null) LocalDeviceRole.EMPLOYEE else LocalDeviceRole.OWNER
+        roleState?.setRole(role, snapshot.owner?.deviceId, snapshot.owner?.deviceName)
+        onPairingChanged?.invoke(snapshot, role)
     }
 
     private fun perform(

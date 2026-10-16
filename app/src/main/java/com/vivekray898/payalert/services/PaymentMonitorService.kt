@@ -32,10 +32,14 @@ class PaymentMonitorService : Service() {
         super.onCreate()
         isRunning = true
         createChannel(this)
+        // The process is kept alive for detection, so the encrypted relay runs its delivery loop
+        // here too: an employee device keeps receiving owner-forwarded payments in the background.
+        AppGraph.get(this).startRelay()
     }
 
     override fun onDestroy() {
         isRunning = false
+        AppGraph.get(this).relayEngine.stop()
         super.onDestroy()
     }
 

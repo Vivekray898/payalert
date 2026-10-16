@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "370526137595",
+    "project_id": "payment-announcer-43071",
+    "storage_bucket": "payment-announcer-43071.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:370526137595:android:36cee8d0949f880e4fd45e",
+        "android_client_info": {
+          "package_name": "com.vivekray898.payalert"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAInSNgzHdmdiHuT15WpXhZxjTmVnBIo8U"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -3,6 +3,7 @@ package com.vivekray898.payalert.pipeline
 import com.vivekray898.payalert.data.PaymentEvent
 import com.vivekray898.payalert.parsers.ParserRegistry
 import com.vivekray898.payalert.parsers.TestConfig
+import com.vivekray898.payalert.role.LocalDeviceRole
 import com.vivekray898.payalert.settings.SettingsSnapshot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -35,13 +36,90 @@ class PaymentPipelineTest {
 
     private fun pipeline(
         store: PaymentStore,
-        announcements: MutableList<String> = CopyOnWriteArrayList()
+        announcements: MutableList<String> = CopyOnWriteArrayList(),
+        localRole: () -> LocalDeviceRole = { LocalDeviceRole.OWNER }
     ) = PaymentPipeline(
         store = store,
         parser = parser,
         settings = { SettingsSnapshot() },
-        tts = { announcements.add(it) }
+        tts = { announcements.add(it) },
+        localRole = localRole
     )
+
+    @Test
+    fun `employee mode drops local input before parsing storing or announcing`() = runBlocking {
+        val store = FakePaymentStore()
+        val announcements = CopyOnWriteArrayList<String>()
+        val pipeline = pipeline(store, announcements) { LocalDeviceRole.EMPLOYEE }
+
+        // Two inbound channels the employee's own phone would otherwise see.
+        val notificationOutcome = pipeline.handle(
+            phonePeText, "notification", "com.phonepe.app", baseNow
+        )
+        val smsOutcome = pipeline.handle(
+            paytmText, "sms", "+919876543210", baseNow + 1_000
+        )
+
+        // The employee's local pipeline must be inert: no parse, no store, no announce, and the
+        // relay's onAccepted callback is never reached, because that callback is what would give the
+        // owner-side forwarder a local event to forward. Sync-role and async-receiver both enforce the
+        // same gate, so this is the contract the owner->employee relay depends on.
+        //
+        // NOTE: JUnit's 3-arg assertEquals/assertTrue take the message FIRST.
+        assertEquals(
+            "employee must not parse its own notifications",
+            ParseOutcome.LOCAL_ROLE_DISABLED,
+            notificationOutcome.reason
+        )
+        assertEquals(
+            "employee must not parse its own SMS",
+            ParseOutcome.LOCAL_ROLE_DISABLED,
+            smsOutcome.reason
+        )
+        assertEquals(
+            "employee must not persist a local event",
+            0,
+            store.eventCount()
+        )
+        assertTrue(
+            "employee must not speak through the local TTS path",
+            announcements.isEmpty()
+        )
+        assertEquals(
+            "lastOutcome must still report the active role guard",
+            ParseOutcome.LOCAL_ROLE_DISABLED,
+            pipeline.lastOutcome.value?.reason
+        )
+    }
+
+    @Test
+    fun `owner mode preserves local input handling`() = runBlocking {
+        val store = FakePaymentStore()
+        val announcements = CopyOnWriteArrayList<String>()
+        val pipeline = pipeline(store, announcements) { LocalDeviceRole.OWNER }
+
+        val outcome = pipeline.handle(phonePeText, "notification", "com.phonepe.app", baseNow)
+
+        assertEquals(ParseOutcome.ACCEPTED, outcome.reason)
+        assertEquals(1, store.eventCount())
+        assertEquals(1, announcements.size)
+    }
+
+    @Test
+    fun `role change disables subsequent local input without rebuilding pipeline`() = runBlocking {
+        val store = FakePaymentStore()
+        val announcements = CopyOnWriteArrayList<String>()
+        var role = LocalDeviceRole.OWNER
+        val pipeline = pipeline(store, announcements) { role }
+
+        assertEquals(ParseOutcome.ACCEPTED,
+            pipeline.handle(phonePeText, "notification", "com.phonepe.app", baseNow).reason)
+        role = LocalDeviceRole.EMPLOYEE
+        assertEquals(ParseOutcome.LOCAL_ROLE_DISABLED,
+            pipeline.handle(paytmText, "notification", "net.one97.paytm", baseNow + 200).reason)
+        assertEquals(1, store.eventCount())
+        assertEquals(1, announcements.size)
+    }
 
     // ------------------------------------------------------------------
     // Test A — sequential cross-app semantic collapse

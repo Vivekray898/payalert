@@ -18,7 +18,10 @@ import com.vivekray898.payalert.AppGraph
 import com.vivekray898.payalert.health.ReviewPromptStore
 import com.vivekray898.payalert.health.ServiceHealth
 import com.vivekray898.payalert.onboarding.OnboardingRepository
+import com.vivekray898.payalert.relay.EmployeeRealtimeService
+import com.vivekray898.payalert.role.LocalDeviceRole
 import com.vivekray898.payalert.services.PaymentMonitorService
+import kotlinx.coroutines.delay
 import com.vivekray898.payalert.ui.onboarding.OnboardingScreen
 import com.vivekray898.payalert.ui.review.ReviewPromptHost
 import com.vivekray898.payalert.ui.theme.PayAlertTheme
@@ -46,6 +49,14 @@ class MainActivity : ComponentActivity() {
         if (graph.settings.state.value.monitoringEnabled) {
             PaymentMonitorService.start(this)
         }
+        // Start the Realtime service for employee devices so payments arrive immediately.
+        val role = graph.settings.localDeviceRoleState.currentRole
+        if (role == LocalDeviceRole.EMPLOYEE && graph.isTransportConfigured) {
+            EmployeeRealtimeService.start(this)
+        }
+        // Expire stale received announcements, resolve the pairing in the background, and make sure
+        // the relay loop and its cleanup job are running even if the team screen is never opened.
+        graph.onAppOpen()
 
         setContent {
             PayAlertTheme {
@@ -91,12 +102,23 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         runHealthCheck()
+        // Re-start the Realtime service if this is an employee device (handles rotation/recreation)
+        val graph = AppGraph.get(this)
+        if (graph.settings.localDeviceRoleState.currentRole == LocalDeviceRole.EMPLOYEE) {
+            EmployeeRealtimeService.start(this)
+        }
     }
 
     /**
      * The reference app calls `startServiceHealthChecks` on launch; this is the same idea.
      * Inspect, repair what can be repaired silently, inspect again, and tell the user only
      * about what is still broken.
+     *
+     * `requestRebind` is asynchronous: the system binds the listener and then calls
+     * `onListenerConnected`, which sets [AppGraph.setListenerConnected]. A snapshot taken
+     * immediately after the repair therefore still reports "not connected" and the banner
+     * would flash a false positive. Re-check once after a short delay so a repair that
+     * actually landed clears the banner instead.
      */
     private fun runHealthCheck() {
         lifecycleScope.launch {
@@ -114,10 +136,33 @@ class MainActivity : ComponentActivity() {
 
                 else -> null
             }
+
+            // A rebind that landed between the two snapshots clears the banner; one that
+            // has not landed yet gets one more chance before the user sees anything.
+            if (healthNotice != null && actions.isNotEmpty()) {
+                delay(REPAIR_RECHECK_DELAY_MS)
+                val recheck = ServiceHealth.evaluate(ServiceHealth.snapshot(this@MainActivity, graph))
+                healthNotice = if (recheck.blockingIssues.isEmpty()) {
+                    null
+                } else {
+                    "Detection needs attention: " +
+                        recheck.blockingIssues.joinToString(", ") { it.name.lowercase() }
+                }
+            }
         }
     }
 
     private fun openHealthSettings() {
         runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+    }
+
+    private companion object {
+        /**
+         * `NotificationListenerService.requestRebind` is asynchronous: the system binds
+         * the listener and only then invokes `onListenerConnected`. A snapshot taken
+         * immediately after the repair therefore still reports "not connected". This
+         * delay lets a repair that landed clear the banner instead of flashing it.
+         */
+        private const val REPAIR_RECHECK_DELAY_MS = 750L
     }
 }

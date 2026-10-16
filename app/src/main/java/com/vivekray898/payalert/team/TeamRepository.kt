@@ -19,7 +19,11 @@ data class TeamInvite(val code: String, val expiresAt: String) {
         }.getOrDefault(0L)
 }
 
-/** Pairing metadata only. No payment data is uploaded or downloaded by this API. */
+/**
+ * Pairing metadata only. This API never uploads or downloads payment data; the encrypted relay
+ * that forwards credits is a separate interface, [com.vivekray898.payalert.relay.RelayTransport],
+ * so a caller of this interface cannot move an envelope by accident.
+ */
 interface TeamRepository {
     val configured: Boolean
     val account: StateFlow<TeamAccount?>

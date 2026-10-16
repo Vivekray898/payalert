@@ -6,7 +6,8 @@
 -- public rather than extensions. No Supabase service or network is needed.
 -- The shim creates auth.users/auth.uid(), anon/authenticated, applies schema.sql,
 -- simulates Supabase's broad default grants (including column-level grants),
--- then applies team_pairing.sql TWICE. It persists only setup, not test fixtures.
+-- then applies team_pairing.sql twice, encrypted_relay.sql, team_pairing.sql
+-- again, and encrypted_relay.sql again. It persists only setup, not fixtures.
 -- NEVER use shim=true on a real Supabase database: it replaces auth.uid().
 --
 -- On a disposable Supabase/test database already migrated, omit shim=true:
@@ -61,6 +62,9 @@
         ON public.devices TO authenticated;
     \ir ../team_pairing.sql
     \ir ../team_pairing.sql
+    \ir ../encrypted_relay.sql
+    \ir ../team_pairing.sql
+    \ir ../encrypted_relay.sql
 \endif
 
 BEGIN;
@@ -99,6 +103,12 @@ GRANT SELECT, INSERT, UPDATE ON team_pairing_test_state TO authenticated, anon;
 \set employee2 '20000000-0000-0000-0000-000000000004'
 \set outsider '20000000-0000-0000-0000-000000000005'
 \set spare '20000000-0000-0000-0000-000000000006'
+\set owner_key '30000000-0000-0000-0000-000000000001'
+\set employee_key '30000000-0000-0000-0000-000000000002'
+\set employee_key_rotated '30000000-0000-0000-0000-000000000003'
+\set relay_message '40000000-0000-0000-0000-000000000001'
+\set relay_expiring '40000000-0000-0000-0000-000000000002'
+\set relay_cascade '40000000-0000-0000-0000-000000000003'
 
 INSERT INTO auth.users (id, email, raw_user_meta_data) VALUES
     (:'account_a', 'team-a@example.test', '{"full_name":"Private account A"}'),
@@ -111,12 +121,26 @@ SELECT pg_temp.assert_true((SELECT count(*) = 5 AND bool_and(p.prosecdef)
     FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public' AND p.proname IN ('team_register_device', 'team_create_invite',
         'team_cancel_invite', 'team_join', 'team_remove_connection')), 'fixed-path SECURITY DEFINER RPCs');
+SELECT pg_temp.assert_true((SELECT count(*) = 8 AND bool_and(p.prosecdef)
+    AND bool_and(p.proconfig @> ARRAY['search_path=""'])
+    FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname IN ('relay_register_key', 'relay_rotate_key',
+        'relay_bind_peer_key', 'relay_peer_key', 'relay_enqueue', 'relay_fetch', 'relay_ack',
+        'relay_cleanup_expired')), 'encrypted relay fixed-path SECURITY DEFINER RPCs');
 SELECT pg_temp.assert_true(NOT has_schema_privilege('authenticated', 'team_private', 'USAGE'),
     'private schema is not client-accessible');
+SELECT pg_temp.assert_true(NOT has_schema_privilege('authenticated', 'relay_private', 'USAGE'),
+    'relay private schema is not client-accessible');
 SELECT pg_temp.assert_true(NOT has_table_privilege('authenticated', 'public.devices', 'UPDATE')
     AND NOT has_column_privilege('authenticated', 'public.devices', 'paired_with_device_id', 'UPDATE')
     AND NOT has_column_privilege('authenticated', 'public.devices', 'id', 'INSERT'),
     'both table and column device write grants revoked');
+SELECT pg_temp.assert_true(NOT has_table_privilege('authenticated', 'relay_private.envelopes', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'relay_private.envelopes', 'INSERT')
+    AND NOT EXISTS (SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'relay_private' AND table_name = 'envelopes'
+          AND column_name IN ('payload', 'body', 'plaintext', 'raw_body')),
+    'relay stores opaque envelopes with no plaintext payload column');
 
 SET LOCAL ROLE anon;
 SELECT pg_temp.expect_error(format('SELECT public.team_register_device(%L, %L)', :'owner', 'No'), '42501');
@@ -124,6 +148,7 @@ SELECT pg_temp.expect_error(format('SELECT public.team_create_invite(%L)', :'own
 SELECT pg_temp.expect_error(format('SELECT public.team_cancel_invite(%L)', :'owner'), '42501');
 SELECT pg_temp.expect_error(format('SELECT public.team_join(%L, %L)', :'owner', '000000000000'), '42501');
 SELECT pg_temp.expect_error(format('SELECT public.team_remove_connection(%L, %L)', :'owner', :'owner'), '42501');
+SELECT pg_temp.expect_error(format('SELECT public.relay_peer_key(%L)', :'employee'), '42501');
 SELECT pg_temp.expect_error('SELECT * FROM public.devices', '42501');
 RESET ROLE;
 SET LOCAL ROLE authenticated;
@@ -286,6 +311,131 @@ SELECT pg_temp.assert_true(public.team_join(:'spare',
     'expired own invite no longer reserves owner role');
 INSERT INTO team_pairing_test_state VALUES ('spare_state', public.team_register_device(:'spare', 'Spare terminal'));
 
+-- Encrypted relay: keys are public metadata, envelopes are opaque bytea, and
+-- only the owner endpoint may enqueue to its employee endpoint.
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', :'account_a', true);
+SELECT pg_temp.assert_true((public.relay_register_key(:'owner', :'owner_key',
+    pg_catalog.decode(repeat('a1', 32), 'hex')) ->> 'rotated')::boolean,
+    'owner key registration succeeds');
+SELECT pg_temp.assert_true((public.relay_register_key(:'owner', :'owner_key',
+    pg_catalog.decode(repeat('a1', 32), 'hex')) ->> 'rotated')::boolean IS FALSE,
+    'same key registration is idempotent');
+SELECT set_config('request.jwt.claim.sub', :'account_b', true);
+SELECT pg_temp.assert_true((public.relay_register_key(:'employee', :'employee_key',
+    pg_catalog.decode(repeat('b2', 32), 'hex')) ->> 'rotated')::boolean,
+    'employee key registration succeeds');
+SELECT pg_temp.expect_error(format('SELECT public.relay_register_key(%L,%L,%L)',
+    :'owner', :'employee_key', '\\x01'::bytea), '42501');
+SELECT pg_temp.expect_error(format('SELECT public.relay_bind_peer_key(%L,%L,%L)',
+    :'owner', :'employee', :'employee_key'), '42501');
+
+SELECT set_config('request.jwt.claim.sub', :'account_a', true);
+INSERT INTO team_pairing_test_state VALUES ('relay_binding',
+    public.relay_bind_peer_key(:'owner', :'employee', :'employee_key'));
+SELECT pg_temp.assert_true((SELECT value ->> 'employee_key_id' = :'employee_key'
+    AND value ->> 'peer_public_key_hex' IS NOT NULL
+    FROM team_pairing_test_state WHERE key = 'relay_binding'),
+    'owner binds current employee peer key');
+-- The owner cannot read the employee's relay peer lookup, and a device with no
+-- binding gets no key material; only the bound employee sees the owner key.
+SELECT pg_temp.assert_true(public.relay_peer_key(:'employee') IS NULL,
+    'owner endpoint sees no owner key for itself');
+SELECT set_config('request.jwt.claim.sub', :'account_b', true);
+INSERT INTO team_pairing_test_state VALUES ('relay_peer', public.relay_peer_key(:'employee'));
+SELECT pg_temp.assert_true((SELECT value ->> 'owner_device_id' = :'owner'
+    AND value ->> 'owner_key_id' = :'owner_key'
+    AND value ->> 'employee_key_id' = :'employee_key'
+    AND pg_catalog.decode(value ->> 'owner_public_key_hex', 'hex')
+        = pg_catalog.decode(repeat('a1', 32), 'hex')
+    AND value ? 'owner_public_key_hex'
+    AND NOT value ? 'private_key'
+    FROM team_pairing_test_state WHERE key = 'relay_peer'),
+    'employee reads the bound owner public key and no private material');
+SELECT pg_temp.assert_true(public.relay_peer_key(:'outsider') IS NULL,
+    'another account gets no key material for an unowned employee device');
+SELECT pg_temp.expect_error(format('SELECT public.relay_peer_key(%L)', NULL), '22023');
+SELECT set_config('request.jwt.claim.sub', :'account_a', true);
+INSERT INTO team_pairing_test_state VALUES ('relay_first', public.relay_enqueue(
+    :'owner', :'employee', :'relay_message', pg_catalog.decode(repeat('11', 32), 'hex'), 3600));
+INSERT INTO team_pairing_test_state VALUES ('relay_duplicate', public.relay_enqueue(
+    :'owner', :'employee', :'relay_message', pg_catalog.decode(repeat('ff', 32), 'hex'), 3600));
+SELECT pg_temp.assert_true((SELECT (value ->> 'deduplicated')::boolean
+    AND value ->> 'message_id' = (SELECT value ->> 'message_id'
+        FROM team_pairing_test_state WHERE key = 'relay_first')
+    FROM team_pairing_test_state WHERE key = 'relay_duplicate'),
+    'enqueue is idempotent and does not replace the first envelope');
+RESET ROLE;
+SELECT pg_temp.assert_true((SELECT count(*) = 1
+    AND bool_and(encrypted_envelope = pg_catalog.decode(repeat('11', 32), 'hex'))
+    FROM relay_private.envelopes WHERE client_message_id = :'relay_message'),
+    'relay stores exactly one opaque envelope');
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', :'account_a', true);
+SELECT pg_temp.expect_error(format('SELECT * FROM public.relay_fetch(%L)', :'owner'), '42501');
+SELECT set_config('request.jwt.claim.sub', :'account_b', true);
+INSERT INTO team_pairing_test_state
+SELECT 'relay_lease', COALESCE(jsonb_agg(pg_catalog.jsonb_build_object(
+    'message_id', f.message_id, 'lease_token', f.lease_token,
+    'envelope_hex', pg_catalog.encode(f.encrypted_envelope, 'hex'))), '[]'::jsonb)
+FROM public.relay_fetch(:'employee', 10, 300) AS f;
+SELECT pg_temp.assert_true((SELECT jsonb_array_length(value) = 1
+    AND value #>> '{0,envelope_hex}' = repeat('11', 32)
+    FROM team_pairing_test_state WHERE key = 'relay_lease'),
+    'employee fetch leases the opaque envelope');
+SELECT pg_temp.assert_true((SELECT count(*) = 0 FROM public.relay_fetch(:'employee', 10, 300)),
+    'active lease is not fetched twice');
+SELECT set_config('request.jwt.claim.sub', :'account_a', true);
+SELECT pg_temp.expect_error(format('SELECT public.relay_ack(%L,%L,%L)', :'employee',
+    (SELECT value #>> '{0,message_id}' FROM team_pairing_test_state WHERE key = 'relay_lease'),
+    (SELECT value #>> '{0,lease_token}' FROM team_pairing_test_state WHERE key = 'relay_lease')), '42501');
+SELECT set_config('request.jwt.claim.sub', :'account_b', true);
+SELECT pg_temp.assert_true(public.relay_ack(:'employee',
+    (SELECT (value #>> '{0,message_id}')::uuid FROM team_pairing_test_state WHERE key = 'relay_lease'),
+    '00000000-0000-0000-0000-000000000099') IS FALSE, 'wrong lease token cannot ack');
+SELECT pg_temp.assert_true(public.relay_ack(:'employee',
+    (SELECT (value #>> '{0,message_id}')::uuid FROM team_pairing_test_state WHERE key = 'relay_lease'),
+    (SELECT (value #>> '{0,lease_token}')::uuid FROM team_pairing_test_state WHERE key = 'relay_lease')),
+    'employee acks its live lease');
+RESET ROLE;
+SELECT pg_temp.assert_true(NOT EXISTS (SELECT 1 FROM relay_private.envelopes
+    WHERE client_message_id = :'relay_message'), 'ack deletes the envelope');
+
+-- Rotation invalidates the old binding; a fresh binding is required before a
+-- new owner-to-employee envelope can be queued.
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', :'account_b', true);
+SELECT pg_temp.assert_true(public.relay_peer_key(:'employee') IS NOT NULL,
+    'existing peer lookup still resolves before rotation');
+SELECT pg_temp.assert_true((public.relay_rotate_key(:'employee', :'employee_key_rotated',
+    pg_catalog.decode(repeat('c3', 32), 'hex')) ->> 'rotated')::boolean,
+    'employee key rotation succeeds');
+SELECT pg_temp.assert_true(public.relay_peer_key(:'employee') IS NULL,
+    'rotation drops the peer lookup until the owner rebinds');
+SELECT set_config('request.jwt.claim.sub', :'account_a', true);
+SELECT pg_temp.expect_error(format('SELECT public.relay_enqueue(%L,%L,%L,%L)',
+    :'owner', :'employee', :'relay_expiring', '\\x22'::bytea), '42501');
+SELECT public.relay_bind_peer_key(:'owner', :'employee', NULL);
+INSERT INTO team_pairing_test_state VALUES ('relay_expiring_state', public.relay_enqueue(
+    :'owner', :'employee', :'relay_expiring', pg_catalog.decode(repeat('22', 32), 'hex'), 60));
+RESET ROLE;
+UPDATE relay_private.envelopes
+   SET created_at = pg_catalog.clock_timestamp() - interval '2 minutes',
+       expires_at = pg_catalog.clock_timestamp() - interval '1 minute'
+ WHERE client_message_id = :'relay_expiring';
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', :'account_a', true);
+SELECT pg_temp.assert_true(public.relay_cleanup_expired(100) = 1,
+    'expired relay envelope cleanup deletes expired rows');
+RESET ROLE;
+SELECT pg_temp.assert_true(NOT EXISTS (SELECT 1 FROM relay_private.envelopes
+    WHERE client_message_id = :'relay_expiring'), 'expired envelope is gone');
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', :'account_a', true);
+INSERT INTO team_pairing_test_state VALUES ('relay_cascade_state', public.relay_enqueue(
+    :'owner', :'employee', :'relay_cascade', pg_catalog.decode(repeat('33', 32), 'hex'), 3600));
+SELECT set_config('request.jwt.claim.sub', :'account_b', true);
+
 -- Pairing does NOT grant data access in either direction, or sync writes.
 SELECT pg_temp.assert_true(NOT EXISTS (SELECT 1 FROM public.devices WHERE id = :'owner')
     AND NOT EXISTS (SELECT 1 FROM public.users WHERE id = :'account_a')
@@ -322,6 +472,14 @@ SELECT pg_temp.expect_error('DELETE FROM team_private.invites', '42501');
 SELECT pg_temp.expect_error('SELECT * FROM team_private.join_attempts', '42501');
 SELECT pg_temp.expect_error('UPDATE team_private.join_attempts SET attempts=1', '42501');
 SELECT pg_temp.expect_error('SELECT team_private.new_invite_code()', '42501');
+SELECT pg_temp.expect_error('SELECT * FROM relay_private.device_keys', '42501');
+SELECT pg_temp.expect_error('SELECT * FROM relay_private.peer_key_bindings', '42501');
+SELECT pg_temp.expect_error('SELECT * FROM relay_private.envelopes', '42501');
+SELECT pg_temp.expect_error(format('INSERT INTO relay_private.envelopes(
+        pairing_id,owner_device_id,employee_device_id,client_message_id,employee_key_id,
+        encrypted_envelope,created_at,expires_at) VALUES (%L,%L,%L,%L,%L,%L,now(),now()+interval ''1 hour'')',
+    (SELECT (value ->> 'pairing_id')::uuid FROM team_pairing_test_state WHERE key = 'relay_binding'),
+    :'owner', :'employee', :'relay_message', :'employee_key_rotated', '\\x44'::bytea), '42501');
 
 -- Defense in depth: restrictive RLS still denies after accidental blanket grants
 -- AND permissive policies. Restore the migration's ACLs immediately afterwards.
@@ -329,20 +487,35 @@ RESET ROLE;
 GRANT USAGE ON SCHEMA team_private TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.owner_employees, team_private.invites,
     team_private.join_attempts TO authenticated;
+GRANT USAGE ON SCHEMA relay_private TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON relay_private.device_keys,
+    relay_private.peer_key_bindings, relay_private.envelopes TO authenticated;
 CREATE POLICY team_test_allow ON public.owner_employees FOR ALL TO authenticated USING (true) WITH CHECK (true);
 CREATE POLICY team_test_allow ON team_private.invites FOR ALL TO authenticated USING (true) WITH CHECK (true);
 CREATE POLICY team_test_allow ON team_private.join_attempts FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY relay_test_allow ON relay_private.device_keys FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY relay_test_allow ON relay_private.peer_key_bindings FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY relay_test_allow ON relay_private.envelopes FOR ALL TO authenticated USING (true) WITH CHECK (true);
 SET LOCAL ROLE authenticated;
 SELECT pg_temp.assert_true(NOT EXISTS (SELECT 1 FROM public.owner_employees)
     AND NOT EXISTS (SELECT 1 FROM team_private.invites)
-    AND NOT EXISTS (SELECT 1 FROM team_private.join_attempts), 'RLS remains closed after accidental grants/policies');
+    AND NOT EXISTS (SELECT 1 FROM team_private.join_attempts)
+    AND NOT EXISTS (SELECT 1 FROM relay_private.device_keys)
+    AND NOT EXISTS (SELECT 1 FROM relay_private.peer_key_bindings)
+    AND NOT EXISTS (SELECT 1 FROM relay_private.envelopes),
+    'RLS remains closed after accidental grants/policies');
 SELECT pg_temp.expect_error(format('INSERT INTO public.owner_employees(owner_device_id,employee_device_id) VALUES (%L,%L)', :'other_a', :'owner'), '42501');
 RESET ROLE;
 DROP POLICY team_test_allow ON public.owner_employees;
 DROP POLICY team_test_allow ON team_private.invites;
 DROP POLICY team_test_allow ON team_private.join_attempts;
+DROP POLICY relay_test_allow ON relay_private.device_keys;
+DROP POLICY relay_test_allow ON relay_private.peer_key_bindings;
+DROP POLICY relay_test_allow ON relay_private.envelopes;
 REVOKE ALL ON public.owner_employees, team_private.invites, team_private.join_attempts FROM authenticated;
 REVOKE ALL ON SCHEMA team_private FROM authenticated;
+REVOKE ALL ON relay_private.device_keys, relay_private.peer_key_bindings, relay_private.envelopes FROM authenticated;
+REVOKE ALL ON SCHEMA relay_private FROM authenticated;
 
 -- Relationship authorization is endpoint-specific, not just account-specific.
 SET LOCAL ROLE authenticated;
@@ -357,6 +530,15 @@ SELECT pg_temp.expect_error(format('SELECT public.team_remove_connection(%L,%L)'
 SELECT set_config('request.jwt.claim.sub', :'account_a', true);
 SELECT public.team_remove_connection(:'owner',
     (SELECT (value #>> '{owner,pairing_id}')::uuid FROM team_pairing_test_state WHERE key='employee_state'));
+RESET ROLE;
+SELECT pg_temp.assert_true(NOT EXISTS (SELECT 1 FROM relay_private.envelopes
+    WHERE owner_device_id = :'owner' AND employee_device_id = :'employee')
+    AND NOT EXISTS (SELECT 1 FROM relay_private.peer_key_bindings
+        WHERE owner_device_id = :'owner' AND employee_device_id = :'employee')
+    AND EXISTS (SELECT 1 FROM relay_private.device_keys WHERE device_id = :'employee'),
+    'pairing removal cascades relay envelopes and peer binding but keeps device keys');
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', :'account_a', true);
 SELECT pg_temp.assert_true(jsonb_array_length(public.team_register_device(:'owner', 'Owner tablet') -> 'employees') = 2,
     'owner revoke preserves other connections');
 SELECT set_config('request.jwt.claim.sub', :'account_b', true);
@@ -433,4 +615,4 @@ SELECT pg_temp.assert_true((SELECT amount = 22 FROM public.payment_events WHERE 
     'payment rows untouched throughout pairing');
 
 ROLLBACK;
-\echo 'PASS: team pairing regression suite (all fixture changes rolled back)'
+\echo 'PASS: team pairing + encrypted relay regression suite (all fixture changes rolled back)'

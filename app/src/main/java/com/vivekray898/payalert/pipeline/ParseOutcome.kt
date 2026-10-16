@@ -7,7 +7,7 @@ import com.vivekray898.payalert.data.PaymentEvent
  * so the user can see exactly why a message was (or was not) announced.
  */
 data class ParseOutcome(
-    /** Reason code: accepted, not_monitored, no_match, below_minimum, kind_disabled, duplicate. */
+    /** Reason code for the pipeline decision. */
     val reason: String,
     val accepted: Boolean,
     val at: Long,
@@ -29,5 +29,6 @@ data class ParseOutcome(
         const val KIND_DISABLED = "kind_disabled"
         const val SOURCE_DISABLED = "source_disabled"
         const val DUPLICATE = "duplicate"
+        const val LOCAL_ROLE_DISABLED = "local_role_disabled"
     }
 }

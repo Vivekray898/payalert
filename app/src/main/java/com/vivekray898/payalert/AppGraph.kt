@@ -1,6 +1,7 @@
 package com.vivekray898.payalert
 
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import com.vivekray898.payalert.data.PayAlertDatabase
 import com.vivekray898.payalert.parsers.CoordinatorConfig
@@ -13,14 +14,28 @@ import com.vivekray898.payalert.parsers.PatternConfig
 import com.vivekray898.payalert.parsers.SkipConfig
 import com.vivekray898.payalert.pipeline.PaymentPipeline
 import com.vivekray898.payalert.pipeline.RoomPaymentStore
+import com.vivekray898.payalert.relay.AndroidKeystoreRelayPrivateKeyStorage
+import com.vivekray898.payalert.relay.EmployeeReceiver
+import com.vivekray898.payalert.relay.OwnerForwarder
+import com.vivekray898.payalert.relay.RelayCleanup
+import com.vivekray898.payalert.relay.RelayCleanupScheduler
+import com.vivekray898.payalert.relay.RelayEngine
+import com.vivekray898.payalert.relay.RelayIdentity
+import com.vivekray898.payalert.relay.RelayPeerKeyCache
+import com.vivekray898.payalert.relay.RelayPumpScheduler
 import com.vivekray898.payalert.settings.AppSettings
-import com.vivekray898.payalert.tts.TtsEngine
 import com.vivekray898.payalert.team.SupabaseTeamRepository
+import com.vivekray898.payalert.team.TeamController
 import com.vivekray898.payalert.team.TeamRepository
+import com.vivekray898.payalert.tts.TtsEngine
 import com.vivekray898.payalert.widget.PayAlertWidgetProvider
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 /**
  * Process-wide dependency holder. Deliberately a hand-written singleton rather than
@@ -40,8 +55,21 @@ object AppGraph {
     class Graph(context: Context) {
         val settings: AppSettings = AppSettings(context)
         val database: PayAlertDatabase = PayAlertDatabase.get(context)
-        // Lazy: optional cloud auth does not initialize during local payment detection.
-        val team: TeamRepository by lazy { SupabaseTeamRepository(context) }
+
+        /** Survives individual screens because relay work is not tied to a ViewModel. */
+        private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+        /**
+         * One instance serves both the pairing API and the encrypted relay, so the rotating refresh
+         * token is used under a single mutex and the relay can never race a sign-in.
+         */
+        private val teamRepository: SupabaseTeamRepository by lazy { SupabaseTeamRepository(context) }
+        val team: TeamRepository get() = teamRepository
+
+        private val devicePreferences =
+            context.getSharedPreferences("team_device", Context.MODE_PRIVATE)
+        private val defaultDeviceName =
+            "${Build.MANUFACTURER} ${Build.MODEL}".trim().take(100).ifBlank { "My Android device" }
 
         /** Rule set loaded from assets; failure is surfaced in diagnostics rather than hidden. */
         val parserConfigLoadFailed: Boolean
@@ -61,17 +89,82 @@ object AppGraph {
         }
         val tts: TtsEngine = TtsEngine(context, settings)
 
+        private val relayIdentity = RelayIdentity(
+            AndroidKeystoreRelayPrivateKeyStorage(context),
+            teamRepository
+        )
+        private val relayPeerKeys = RelayPeerKeyCache(database.relayPeerKeyDao())
+
+        val relayForwarder = OwnerForwarder(
+            transport = teamRepository,
+            identity = relayIdentity,
+            queue = database.ownerOutboundQueueDao(),
+            peerKeys = relayPeerKeys
+        )
+
+        val relayReceiver = EmployeeReceiver(
+            transport = teamRepository,
+            identity = relayIdentity,
+            peerKeys = relayPeerKeys,
+            received = database.receivedAnnouncementDao(),
+            announcementTemplate = { settings.state.value.creditTemplate },
+            announce = tts::announce
+        )
+
+        /**
+         * Owner -> employee relay. It is inert until a pairing exists, so an app with no account
+         * behaves exactly as before.
+         */
+        /** Exposed for EmployeeRealtimeService to check if relay is configured. */
+        val isTransportConfigured: Boolean get() = teamRepository.configured
+
+        /** Updates the FCM token on the server for this device. */
+        fun updateFcmToken(token: String) {
+            // This will be implemented via a new RPC in a future migration
+            // For now, log the token (in production, store it securely)
+            android.util.Log.i("PayAlertRelay", "FCM token updated: ${token.take(20)}...")
+        }
+
+        val relayEngine: RelayEngine = RelayEngine(
+            transport = teamRepository,
+            identity = relayIdentity,
+            peerKeys = relayPeerKeys,
+            forwarder = relayForwarder,
+            receiver = relayReceiver,
+            outbound = database.ownerOutboundQueueDao(),
+            received = database.receivedAnnouncementDao(),
+            scope = appScope
+        )
+
+        /**
+         * Created eagerly on app open so an existing pairing is resolved in the background, without
+         * the user having to open the team screen for forwarding to work.
+         */
+        val teamController: TeamController by lazy {
+            TeamController(
+                repository = team,
+                scope = appScope,
+                initialDeviceName = devicePreferences.getString(KEY_DEVICE_NAME, null)
+                    ?: defaultDeviceName,
+                saveDeviceName = { name ->
+                    devicePreferences.edit().putString(KEY_DEVICE_NAME, name).apply()
+                },
+                roleState = settings.localDeviceRoleState,
+                onPairingChanged = { snapshot, role -> relayEngine.onPairingChanged(snapshot, role) }
+            )
+        }
+
         /** Application context, kept so the pipeline can notify home-screen widgets. */
         private val appContext: Context = context.applicationContext
 
         val pipeline: PaymentPipeline = PaymentPipeline(
-            RoomPaymentStore(database),
-            parser,
-            { settings.state.value },
-            tts::announce
-        ) {
-            PayAlertWidgetProvider.refresh(appContext)
-        }
+            store = RoomPaymentStore(database),
+            parser = parser,
+            settings = { settings.state.value },
+            tts = tts::announce,
+            onStored = { PayAlertWidgetProvider.refresh(appContext) },
+            onAccepted = { event -> relayEngine.onStored(event) }
+        )
 
         /** Set by the notification listener so the UI can report listener health. */
         private val _listenerConnected = MutableStateFlow(false)
@@ -80,9 +173,57 @@ object AppGraph {
         fun setListenerConnected(connected: Boolean) {
             _listenerConnected.value = connected
         }
+
+        /**
+         * Called when the app or the monitor service starts.
+         *
+         * Resolves the current pairing (which sets the local role and, on an employee device, starts
+         * receiving), drops expired announcements, and makes sure the periodic cleanup is scheduled.
+         */
+        fun onAppOpen() {
+            // Touching the controller resolves the pairing even when the team screen is never opened.
+            val controller = teamController
+            appScope.launch {
+                try {
+                    controller.refresh()
+                } catch (_: Exception) {
+                    // Offline is normal; the next open retries.
+                }
+            }
+            appScope.launch {
+                try {
+                    RelayCleanup.sweepOnAppOpen(database)
+                } catch (_: Exception) {
+                    // Retention sweep is best effort; reads also filter by expiry.
+                }
+            }
+            runCatching { RelayCleanupScheduler.schedule(appContext) }
+            runCatching { RelayPumpScheduler.schedule(appContext) }
+            startRelay()
+        }
+
+        /** Starts the foreground relay loop. Cheap and idempotent; used by the monitor service too. */
+        fun startRelay() {
+            teamController
+            relayEngine.start()
+        }
+
+        /**
+         * One background relay pass: resolve the current pairing, then deliver. Called by the
+         * periodic worker so a paired device keeps working with no screen open.
+         */
+        suspend fun runRelayPump() {
+            try {
+                teamController.refresh()
+            } catch (_: Exception) {
+                // Offline: the previously stored pairing still lets queued work be flushed.
+            }
+            relayEngine.pump()
+        }
     }
 
     private const val TAG = "PayAlert"
+    private const val KEY_DEVICE_NAME = "name"
 
     private fun emptyConfig() = ParserConfig(
         schemaVersion = 0,

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
 import com.vivekray898.payalert.AppGraph
+import com.vivekray898.payalert.role.PersistedLocalDeviceRoleState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -19,6 +20,13 @@ class SmsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
 
+        val appContext = context.applicationContext
+        val roleState = PersistedLocalDeviceRoleState(appContext)
+        // Check before reading or joining PDUs. The persisted getter is synchronous, so a
+        // confirmed pairing change takes effect on the next broadcast without any permission
+        // or receiver lifecycle change.
+        if (!roleState.allowsLocalDetection) return
+
         val messages = try {
             Telephony.Sms.Intents.getMessagesFromIntent(intent)?.toList().orEmpty()
         } catch (error: Exception) {
@@ -27,13 +35,14 @@ class SmsReceiver : BroadcastReceiver() {
         if (messages.isEmpty()) return
 
         val pendingResult = goAsync()
-        val appContext = context.applicationContext
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
+                if (!roleState.allowsLocalDetection) return@launch
                 val pipeline = AppGraph.get(appContext).pipeline
                 messages
                     .groupBy { it.originatingAddress ?: "unknown" }
                     .forEach { (sender, parts) ->
+                        if (!roleState.allowsLocalDetection) return@forEach
                         val body = parts.joinToString(separator = "") { it.messageBody.orEmpty() }
                         if (body.isNotBlank()) {
                             pipeline.handle(body, SOURCE, sender)

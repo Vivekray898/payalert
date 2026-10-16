@@ -3,6 +3,7 @@ package com.vivekray898.payalert.pipeline
 import com.vivekray898.payalert.data.PaymentEvent
 import com.vivekray898.payalert.parsers.DedupKeyBuilder
 import com.vivekray898.payalert.parsers.ParserRegistry
+import com.vivekray898.payalert.role.LocalDeviceRole
 import com.vivekray898.payalert.settings.AnnouncementFormatter
 import com.vivekray898.payalert.settings.AppSettings
 import com.vivekray898.payalert.settings.SettingsSnapshot
@@ -32,8 +33,15 @@ class PaymentPipeline(
     private val settings: () -> SettingsSnapshot,
     /** Announcement callback; kept as a lambda so tests can count utterances. */
     private val tts: (String) -> Unit,
+    /** Optional synchronous role hook for AppGraph or a direct pipeline integration. */
+    private val localRole: (() -> LocalDeviceRole)? = null,
     /** Notified after a payment is stored, so home-screen widgets can refresh. */
-    private val onStored: () -> Unit = {}
+    private val onStored: () -> Unit = {},
+    /**
+     * Notified with the stored event so the encrypted relay can forward a credit. Kept separate
+     * from [onStored] because it needs the event and must never be able to fail detection.
+     */
+    private val onAccepted: (PaymentEvent) -> Unit = {}
 ) {
     private val _lastOutcome = MutableStateFlow<ParseOutcome?>(null)
     val lastOutcome: StateFlow<ParseOutcome?> = _lastOutcome.asStateFlow()
@@ -47,6 +55,12 @@ class PaymentPipeline(
         now: Long = System.currentTimeMillis()
     ): ParseOutcome {
         val snapshot = settings()
+
+        // Employee devices may receive the same local SMS/notification stream as the owner,
+        // but local input must stop before parsing, persistence, or announcement.
+        if ((localRole?.invoke() ?: snapshot.localDeviceRole) != LocalDeviceRole.OWNER) {
+            return record(outcome(ParseOutcome.LOCAL_ROLE_DISABLED, source, sourceDetail, now))
+        }
 
         if (!snapshot.monitoringEnabled) {
             return record(outcome(ParseOutcome.NOT_MONITORED, source, sourceDetail, now))
@@ -157,10 +171,13 @@ class PaymentPipeline(
             amount = parsed.amount,
             merchant = parsed.merchant,
             bankOrUpi = parsed.bankOrUpi,
-            kind = parsed.kind
+            kind = parsed.kind,
+            currency = parsed.currency
         )
         // Announcement stays outside the lock: speech must never block detection.
         tts(announcement)
+        // Relay hand-off is fire-and-forget; a paired owner forwards credits, everyone else ignores.
+        onAccepted(event)
 
         return record(
             outcome(ParseOutcome.ACCEPTED, source, sourceDetail, now).copy(

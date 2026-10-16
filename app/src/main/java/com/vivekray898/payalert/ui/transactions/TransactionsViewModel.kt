@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.vivekray898.payalert.AppGraph
 import com.vivekray898.payalert.analytics.AnalyticsCalculator
 import com.vivekray898.payalert.data.PaymentEvent
+import com.vivekray898.payalert.relay.ReceivedAnnouncement
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,10 +15,15 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 
 /** Date-range presets offered by the history filter. */
 enum class HistoryRange(val label: String, val days: Int) {
@@ -30,6 +37,7 @@ enum class HistoryRange(val label: String, val days: Int) {
 class TransactionsViewModel(application: Application) : AndroidViewModel(application) {
 
     private val dao = AppGraph.get(application).database.paymentEventDao()
+    private val receivedAnnouncementDao = AppGraph.get(application).database.receivedAnnouncementDao()
 
     private val _kind = MutableStateFlow<String?>(null)
     val kind: StateFlow<String?> = _kind.asStateFlow()
@@ -45,6 +53,25 @@ class TransactionsViewModel(application: Application) : AndroidViewModel(applica
 
     val accounts: StateFlow<List<String>> = dao.observeAccounts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * Received announcements intentionally have a separate stream from payment events. They are
+     * display-only history items and never participate in payment filters, totals, export, or any
+     * cashbook/analytics input.
+     */
+    val receivedAnnouncements: StateFlow<List<ReceivedAnnouncement>> = flow {
+        while (currentCoroutineContext().isActive) {
+            val rows = try {
+                withContext(Dispatchers.IO) { receivedAnnouncementDao.all() }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                emptyList()
+            }
+            emit(rows.visibleReceivedAnnouncements(System.currentTimeMillis()))
+            delay(RECEIVED_ANNOUNCEMENT_REFRESH_MS)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private data class Filters(
         val kind: String?,
@@ -67,10 +94,7 @@ class TransactionsViewModel(application: Application) : AndroidViewModel(applica
 
     /** Totals follow the active filter, so the header always matches the list beneath it. */
     val filteredTotals: StateFlow<Pair<Double, Double>> = events
-        .map { list ->
-            list.filter { it.kind == "credit" }.sumOf { it.amount } to
-                list.filter { it.kind == "debit" }.sumOf { it.amount }
-        }
+        .map(::paymentEventTotals)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0.0 to 0.0)
 
     fun setKind(kind: String?) {
@@ -111,5 +135,9 @@ class TransactionsViewModel(application: Application) : AndroidViewModel(applica
         HistoryRange.ALL_TIME -> 0L..Long.MAX_VALUE
         HistoryRange.THIS_MONTH -> AnalyticsCalculator.rangeForThisMonth()
         else -> AnalyticsCalculator.rangeForDays(range.days)
+    }
+
+    private companion object {
+        private const val RECEIVED_ANNOUNCEMENT_REFRESH_MS = 5_000L
     }
 }

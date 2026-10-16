@@ -14,4 +14,10 @@
     <string name="widget_open">Open</string>
     <string name="widget_empty">No payments detected yet</string>
     <string name="widget_totals">In %1$s · Out %2$s (this month)</string>
+
+    <!-- Relay Realtime Service -->
+    <string name="relay_realtime_channel_name">Relay realtime</string>
+    <string name="relay_realtime_channel_description">Keeps real-time payment sync active for paired employees</string>
+    <string name="relay_realtime_notification_title">Relay sync active</string>
+    <string name="relay_realtime_notification_text">Listening for payments from paired owner</string>
 </resources>
