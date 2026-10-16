@@ -39,17 +39,23 @@ before offline commands can work; clean-machine setup needs network access.
 3. In Supabase Authentication → URL Configuration → Redirect URLs, allow exactly
    **`com.vivekray898.payalert://auth/callback`**. Do not enable implicit-flow token callbacks.
    Android opens the system browser and uses PKCE to exchange the returned one-time code.
-4. Set the two **public** client values before building:
+4. Set the two **public** client values before building. This workspace can keep them in the
+   ignored root `secrets.properties` file, so normal builds do not need exports. The file is already
+   configured locally in this checkout; do not commit it. For another checkout, copy the following
+   template and replace the values:
 
    ```sh
-   export SUPABASE_URL='https://your-project.supabase.co'
-   export SUPABASE_PUBLISHABLE_KEY='sb_publishable_your_public_key'
-   make build
-   adb install -r app/build/outputs/apk/debug/app-debug.apk
+    cat > secrets.properties <<'EOF'
+    SUPABASE_URL=https://your-project.supabase.co
+    SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_public_key
+    EOF
+    make build
+    adb install -r app/build/outputs/apk/debug/app-debug.apk
    ```
 
-   Matching Gradle `-P` properties are also supported and take precedence over the environment.
-   `.env.example` documents the variables; Gradle does **not** load dotenv files. Never embed
+   Gradle `-P` properties take precedence, followed by environment variables, then
+   `secrets.properties`. `.env.example` documents the variables; Gradle does **not** load dotenv
+   files. Never embed
    `service_role`, `sb_secret_`, Google OAuth secrets, or personal access tokens. Builds with no
    public configuration show a setup explanation and make no team requests.
 

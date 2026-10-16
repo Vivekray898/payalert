@@ -1,6 +1,7 @@
 import groovy.json.JsonSlurper
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.util.Base64
+import java.util.Properties
 
 plugins {
     // AGP 9 provides Kotlin support itself (built-in Kotlin); the standalone
@@ -12,8 +13,19 @@ plugins {
 
 // Public client settings only. Never load dotenv files or accept a service-role key here.
 // Escape Java string literals rather than interpolating untrusted -P/environment values.
+val localSecrets = Properties().apply {
+    val file = rootProject.file("secrets.properties")
+    if (file.isFile) {
+        file.inputStream().use(::load)
+    }
+}
+
 fun publicBuildConfigString(name: String): String {
-    val value = providers.gradleProperty(name).orElse(providers.environmentVariable(name)).getOrElse("").trim()
+    val value = providers.gradleProperty(name)
+        .orElse(providers.environmentVariable(name))
+        .orElse(localSecrets.getProperty(name, ""))
+        .getOrElse("")
+        .trim()
     if (name == "SUPABASE_PUBLISHABLE_KEY" && value.isNotEmpty()) {
         val publicKey = value.matches(Regex("sb_publishable_[A-Za-z0-9_-]{6,}")) || runCatching {
             val parts = value.split('.')

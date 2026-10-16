@@ -41,70 +41,8 @@ import com.vivekray898.payalert.ui.components.EmptyState
 import com.vivekray898.payalert.ui.components.SectionCard
 import com.vivekray898.payalert.ui.components.SectionHeader
 import com.vivekray898.payalert.ui.components.StatChip
-import com.vivekray898.payalert.ui.components.StatusBadColor
-import com.vivekray898.payalert.ui.components.StatusOkColor
-import com.vivekray898.payalert.ui.components.StatusWarnColor
 import com.vivekray898.payalert.ui.formatAmount
 import com.vivekray898.payalert.ui.formatTimestamp
-
-/** How a detection check reads: healthy, degraded-but-working, or broken. */
-private enum class Status { OK, WARN, BAD }
-
-private fun statusColor(status: Status): androidx.compose.ui.graphics.Color = when (status) {
-    Status.OK -> StatusOkColor
-    Status.WARN -> StatusWarnColor
-    Status.BAD -> StatusBadColor
-}
-
-private fun statusIcon(status: Status): Int = when (status) {
-    Status.OK -> R.drawable.ic_check_circle
-    Status.WARN -> R.drawable.ic_warning
-    Status.BAD -> R.drawable.ic_error
-}
-
-/**
- * One detection-status row: label on the left, an icon plus the value on the right.
- * The icon and the value share the semantic colour so the whole row reads at a glance.
- */
-@Composable
-private fun StatusRow(
-    label: String,
-    value: String,
-    status: Status,
-    modifier: Modifier = Modifier
-) {
-    val color = statusColor(status)
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.weight(1f)
-        )
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Icon(
-                painter = painterResource(id = statusIcon(status)),
-                contentDescription = null,
-                tint = color,
-                modifier = Modifier.size(18.dp)
-            )
-            Text(
-                text = value,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = color
-            )
-        }
-    }
-}
 
 /** One recent-payment row. The merchant renders exactly as stored — no case transform. */
 @Composable
@@ -227,42 +165,6 @@ fun HomeScreen(
             }
         }
 
-        // Detection status: one icon-led row per check, coloured by state.
-        item {
-            SectionCard(title = "Detection status") {
-                StatusRow(
-                    label = "Monitoring",
-                    value = if (monitoring) "On" else "Off",
-                    status = if (monitoring) Status.OK else Status.BAD
-                )
-                StatusRow(
-                    label = "SMS permission",
-                    value = if (state.smsPermission) "Granted" else "Not granted",
-                    status = if (state.smsPermission) Status.OK else Status.WARN
-                )
-                StatusRow(
-                    label = "Notification access",
-                    value = if (state.notificationAccess) "Granted" else "Not granted",
-                    status = if (state.notificationAccess) Status.OK else Status.WARN
-                )
-                StatusRow(
-                    label = "Battery optimisation",
-                    value = if (state.batteryExempt) "Exempt" else "Restricted",
-                    status = if (state.batteryExempt) Status.OK else Status.WARN
-                )
-                StatusRow(
-                    label = "Stored payments",
-                    value = state.storedCount.toString(),
-                    status = if (state.storedCount > 0) Status.OK else Status.WARN
-                )
-                StatusRow(
-                    label = "Rule set",
-                    value = if (state.parserConfigLoaded) state.parserRuleSet else "Asset failed to load",
-                    status = if (state.parserConfigLoaded) Status.OK else Status.BAD
-                )
-            }
-        }
-
         // Ranked actions: the primary destination is filled, the utility is outlined.
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -290,10 +192,10 @@ fun HomeScreen(
                 EmptyState(
                     icon = R.drawable.ic_receipt,
                     title = "No payments yet",
-                    description = "Grant monitoring, SMS and notification access, then pay with any app or receive a bank SMS — detections show up here.",
+                    description = "Grant monitoring, SMS and notification access in Settings → Permissions, then pay with any app or receive a bank SMS — detections show up here.",
                     action = {
                         TextButton(onClick = viewModel::refresh) {
-                            Text("Refresh status")
+                            Text("Refresh")
                         }
                     }
                 )

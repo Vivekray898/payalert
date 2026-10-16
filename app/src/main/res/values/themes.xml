@@ -7,5 +7,9 @@
     <style name="Theme.PayAlert" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:statusBarColor">@color/payalert_primary</item>
         <item name="android:windowBackground">@color/payalert_background</item>
+        <!-- OnBackInvokedCallback is required by AGP 9 SDK 34+ toolchains. The app
+             only uses BackHandler in Compose, so this property is declarative, not
+             behavioral; kept to silence the compat warning. -->
+        <item name="android:enableOnBackInvokedCallback">true</item>
     </style>
 </resources>

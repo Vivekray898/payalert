@@ -50,6 +50,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ui.onboarding.OnboardingActivity"
+            android:exported="false"
+            android:label="Set up PayAlert" />
+
         <!-- Foreground payment monitor: parses notifications/SMS and announces via TTS -->
         <service
             android:name=".services.PaymentMonitorService"

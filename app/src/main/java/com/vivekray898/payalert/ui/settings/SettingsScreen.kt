@@ -35,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -51,7 +52,36 @@ import com.vivekray898.payalert.ui.components.SliderRow
 import com.vivekray898.payalert.ui.components.StatusOkColor
 import com.vivekray898.payalert.ui.components.StatusWarnColor
 import com.vivekray898.payalert.ui.components.SwitchRow
+import com.vivekray898.payalert.onboarding.OnboardingRepository
+import com.vivekray898.payalert.onboarding.OnboardingStep
 import com.vivekray898.payalert.ui.components.ValueRow
+
+/** A tappable permission row. Green when granted, orange when missing. */
+@Composable
+private fun PermissionRow(
+    label: String,
+    granted: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp)
+            .clickable(onClick = onClick),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge
+        )
+        Text(
+            text = if (granted) "Granted" else "Not granted",
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (granted) StatusOkColor else StatusWarnColor
+        )
+    }
+}
 
 @Composable
 fun SettingsScreen(
@@ -292,60 +322,35 @@ fun SettingsScreen(
         }
 
         SectionCard(title = "Permissions") {
-            // Green when the capability is in place, orange when the user still has to act.
-            ValueRow(
-                "SMS",
-                if (PermissionStatus.hasReceiveSms(context)) "Granted" else "Not granted",
-                if (PermissionStatus.hasReceiveSms(context)) StatusOkColor else StatusWarnColor
+            // Each row is the single tappable entry for that permission: green when
+            // granted, orange when missing. Tapping a granted row re-checks and shows
+            // the same state; tapping a missing row re-triggers the corresponding
+            // step of the onboarding wizard.
+            val onboarding = remember { OnboardingRepository(context) }
+            PermissionRow(
+                label = "Post notifications",
+                granted = PermissionStatus.hasPostNotifications(context),
+                onClick = { onboarding.startStep(context, OnboardingStep.POST_NOTIFICATIONS) }
             )
-            ValueRow(
-                "Notification access",
-                if (PermissionStatus.hasNotificationAccess(context)) "Granted" else "Not granted",
-                if (PermissionStatus.hasNotificationAccess(context)) StatusOkColor else StatusWarnColor
+            PermissionRow(
+                label = "SMS",
+                granted = PermissionStatus.hasReceiveSms(context),
+                onClick = { onboarding.startStep(context, OnboardingStep.SMS) }
             )
-            ValueRow(
-                "Notifications",
-                if (PermissionStatus.hasPostNotifications(context)) "Granted" else "Not granted",
-                if (PermissionStatus.hasPostNotifications(context)) StatusOkColor else StatusWarnColor
+            PermissionRow(
+                label = "Notification access",
+                granted = PermissionStatus.hasNotificationAccess(context),
+                onClick = { onboarding.startStep(context, OnboardingStep.NOTIFICATION_ACCESS) }
             )
-            ValueRow(
-                "Battery optimisation",
-                if (PermissionStatus.isIgnoringBatteryOptimizations(context)) "Exempt" else "Restricted",
-                if (PermissionStatus.isIgnoringBatteryOptimizations(context)) StatusOkColor else StatusWarnColor
+            PermissionRow(
+                label = "Battery optimisation",
+                granted = PermissionStatus.isIgnoringBatteryOptimizations(context),
+                onClick = { onboarding.startStep(context, OnboardingStep.BATTERY) }
             )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Button(onClick = {
-                    val permissions = mutableListOf(Manifest.permission.RECEIVE_SMS)
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                        permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-                    }
-                    smsPermissionLauncher.launch(permissions.toTypedArray())
-                }) { Text("Grant SMS") }
-                OutlinedButton(
-                    onClick = { openSystemSettings(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS) }
-                ) { Text("Notification access") }
-                OutlinedButton(onClick = {
-                    openSystemSettings(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                }) { Text("Battery") }
-            }
             OutlinedButton(
-                onClick = {
-                    runCatching {
-                        context.startActivity(
-                            Intent(
-                                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                                Uri.parse("package:${context.packageName}")
-                            )
-                        )
-                    }
-                },
+                onClick = { onboarding.startOnboarding(context) },
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("Ask to be exempt from battery optimisation") }
+            ) { Text("Open setup wizard") }
         }
 
         SectionCard(title = "Diagnostics & data") {

@@ -17,7 +17,9 @@ import androidx.lifecycle.lifecycleScope
 import com.vivekray898.payalert.AppGraph
 import com.vivekray898.payalert.health.ReviewPromptStore
 import com.vivekray898.payalert.health.ServiceHealth
+import com.vivekray898.payalert.onboarding.OnboardingRepository
 import com.vivekray898.payalert.services.PaymentMonitorService
+import com.vivekray898.payalert.ui.onboarding.OnboardingScreen
 import com.vivekray898.payalert.ui.review.ReviewPromptHost
 import com.vivekray898.payalert.ui.theme.PayAlertTheme
 import com.vivekray898.payalert.ui.team.TeamAuthViewModel
@@ -26,9 +28,12 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
 
     private lateinit var reviewStore: ReviewPromptStore
+    private lateinit var onboardingRepo: OnboardingRepository
 
     /** Non-null while detection is degraded; rendered as a banner over the whole app. */
     private var healthNotice by mutableStateOf<String?>(null)
+    /** Non-null while the onboarding wizard should be shown instead of the main app. */
+    private var showOnboarding by mutableStateOf(false)
     private val teamAuth: TeamAuthViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -36,6 +41,7 @@ class MainActivity : ComponentActivity() {
 
         val graph = AppGraph.get(this)
         reviewStore = ReviewPromptStore(this)
+        onboardingRepo = OnboardingRepository(this)
         // Re-assert the monitor whenever the user opens the app.
         if (graph.settings.state.value.monitoringEnabled) {
             PaymentMonitorService.start(this)
@@ -45,16 +51,26 @@ class MainActivity : ComponentActivity() {
             PayAlertTheme {
                 Box(modifier = Modifier.fillMaxSize()) {
                     val teamAuthReturn by teamAuth.returnCount.collectAsState()
-                    PayAlertApp(
-                        healthNotice = healthNotice,
-                        onHealthNoticeAction = { openHealthSettings() },
-                        teamAuthReturn = teamAuthReturn
-                    )
-                    ReviewPromptHost(store = reviewStore)
+                    if (showOnboarding) {
+                        OnboardingScreen(
+                            repository = onboardingRepo,
+                            onComplete = { showOnboarding = false }
+                        )
+                    } else {
+                        PayAlertApp(
+                            healthNotice = healthNotice,
+                            onHealthNoticeAction = { openHealthSettings() },
+                            teamAuthReturn = teamAuthReturn
+                        )
+                        ReviewPromptHost(store = reviewStore)
+                    }
                 }
             }
         }
-        if (savedInstanceState == null) handleTeamCallback(intent)
+        if (savedInstanceState == null) {
+            showOnboarding = !onboardingRepo.onboardingComplete
+            handleTeamCallback(intent)
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
