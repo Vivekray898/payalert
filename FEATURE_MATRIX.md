@@ -24,9 +24,9 @@ minSdk 24, targetSdk 36 (read from `.apk_extract/manifest.xml` and the DEX symbo
 
 - **source-inspected** — the reference artefact was read (extracted manifest, resources, DEX symbols).
 - **compiled** — `./gradlew clean :app:assembleDebug` succeeded (12,506,521-byte debug APK produced).
-- **unit-tested** — `./gradlew :app:testDebugUnitTest --rerun-tasks` ran **99 tests, 0 failures, 0 errors**
-  (13 suites; this pass added the four-test `SoundPlaybackTest`, with eight assertions for the
-  pure mode decision function).
+- **unit-tested** — `make test` ran **141 tests, 0 failures** (17 suites, including
+  42 pairing/client/controller tests). Pairing's four Compose tests also passed on Android 14;
+  see `BUILD_AND_VERIFICATION.md` §14 for scope and the live-integration gap.
 - **schema-verified** — Room's KSP processor validates every `@Query` SQL string at compile time;
   an unknown column or invalid SQL fails the build. Every DAO query compiled.
 - **manifest-verified** — component declarations read back out of the *built* APK with `aapt2`.
@@ -129,10 +129,10 @@ minSdk 24, targetSdk 36 (read from `.apk_extract/manifest.xml` and the DEX symbo
 | 6.4 | Home-screen widget | `widget.WidgetConfigActivity`, `widget.UpiQrWidgetReceiver` | `implemented and verified` | **Runtime:** placed on the launcher and rendering live content — `In 6,250.00 · Out 400.00 (this month)` and the latest payment; it refreshed itself after a new SMS arrived | No widget configuration activity |
 | 6.5 | FAQ screen | `ui.FaqsActivity` | `implemented and verified` | **Runtime:** Help & FAQ rendered six Q&A cards | — |
 | 6.6 | In-app terms / privacy | `ui.WebViewActivity` | `implemented and verified` | **Runtime:** a native Privacy & terms screen (no WebView needed) covers local data, permissions, no-subscription and no-affiliation | Rebuilt natively rather than as a WebView |
-| 6.7 | Team / device management | `ui.team.TeamActivity` | `partial` | The optional cloud schema still models users/devices/pairing; all RLS-scoped | No UI and no sync client — would require a backend, which contradicts local-first |
+| 6.7 | Team / device management | `ui.team.TeamActivity` | `partial` | Settings → Team & devices: owner invite/copy/cancel, employee join, names, list refresh, remove/leave; 42 JVM tests, 4 emulator Compose tests, local PostgreSQL authorization/readback suite | Live Google/Supabase/two-phone integration not exercised; metadata pairing only, no payment forwarding |
 | 6.8 | Referrals | `ui.referral.ReferralActivity` | `not applicable` | — | Growth feature tied to the reference's backend |
 | 6.9 | More-apps cross-promotion | `ui.apps.MoreAppsActivity` | `not applicable` | — | Deliberately excluded |
-| 6.10 | Google sign-in | Firebase Auth activities | `not applicable` | App is fully local; no account required | Cloud sync remains optional and unbuilt |
+| 6.10 | Google sign-in | Firebase Auth activities | `implemented but unverified` | Optional browser PKCE Supabase client, encrypted session restoration/refresh, callback routing and sign-out; protocol/request behavior JVM-tested | Live Google OAuth not exercised; local features still require no account |
 | 6.11 | Subscription / manage subscription | `SubscriptionActivity`, `ManageSubscriptionActivity`, Razorpay, Play Billing, `pairip.licensecheck` | `not applicable` | Monetization grep sweep is clean for the app: the only hit is the word `purchase` as a **debit keyword** in the parser rules; the Terms screen states the policy | Removed by requirement |
 | 6.12 | Ads / attribution / Truecaller | AdMob, AdServices, install-referrer, Truecaller SDK | `not applicable` | No such dependency in `app/build.gradle.kts` | Deliberately excluded |
 | 6.13 | Splash screen | `ui.auth.SplashActivity` (launcher) | `not applicable` | `ui.MainActivity` is the launcher and paints immediately | No artificial delay screen |
@@ -181,7 +181,7 @@ re-photograph of the light one.
 
 ## Summary
 
-**Verified by automated test (99 tests, 0 failures, read from this run's XMLs):** parser rules
+**Verified by automated test (141 JVM tests, 0 failures, read from this run's report):** parser rules
 (credit/debit/skip/amount/UTR/account/merchant/direction/currency), config loading, source
 inference, dedup keys and windowing (including the concurrent-mutex proof and its control,
 and both prune cutoffs), announcement formatting, analytics maths, cashbook report maths, CSV
@@ -189,6 +189,9 @@ export shape, UPI link building, QR encode→decode round-trip, the launch-time 
 evaluator and the rating-prompt policy.
 The pure sound-mode decision function is also covered by eight assertions in
 `SoundPlaybackTest`.
+Pairing adds 42 JVM tests for PKCE/session/RPC/controller behavior and four instrumented Compose
+tests. The SQL suite executes ownership, single-use/expiry, readback, revocation and rate limits
+against a disposable PostgreSQL database. These checks do not prove live Google/Supabase integration.
 
 **Verified at runtime on Android 14 (API 34) with the real debug APK:** SMS detection,
 notification detection, cross-app semantic duplicate suppression **on the notification path**
@@ -217,7 +220,7 @@ created without root/SELinux changes — the reason is recorded in §9.6 of the 
 record), and speech speed/pitch/volume audibility.
 
 **Partial:** balance-only message tracking (the balance *on* a payment is captured),
-team/pairing (schema only).
+team/pairing (UI/client and SQL implemented and tested in isolation; live integration not verified).
 
 **Missing relative to the reference:** mandate/autopay parsing and the balance-change history.
 

@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
     <exclude domain="database" path="payalert.db" />
+    <!-- Keystore keys cannot be backed up; never restore private auth onto another install. -->
+    <exclude domain="sharedpref" path="team_private.xml" />
 </full-backup-content>

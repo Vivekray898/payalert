@@ -26,4 +26,5 @@ sealed interface Overlay {
     data object Terms : Overlay
     data object Qr : Overlay
     data object Backup : Overlay
+    data object Team : Overlay
 }

@@ -17,6 +17,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -39,15 +40,21 @@ import com.vivekray898.payalert.ui.passbook.PassbookScreen
 import com.vivekray898.payalert.ui.qr.QrScreen
 import com.vivekray898.payalert.ui.settings.SettingsScreen
 import com.vivekray898.payalert.ui.transactions.TransactionsScreen
+import com.vivekray898.payalert.ui.team.TeamScreen
 
 @Composable
 fun PayAlertApp(
     healthNotice: String? = null,
-    onHealthNoticeAction: (() -> Unit)? = null
+    onHealthNoticeAction: (() -> Unit)? = null,
+    teamAuthReturn: Int = 0
 ) {
     var tabIndex by rememberSaveable { mutableStateOf(0) }
     var overlayName by rememberSaveable { mutableStateOf<String?>(null) }
     val overlay = overlayName?.let { OverlayRegistry.byName(it) }
+
+    LaunchedEffect(teamAuthReturn) {
+        if (teamAuthReturn > 0) overlayName = OverlayRegistry.nameOf(Overlay.Team)
+    }
 
     fun open(target: Overlay) {
         overlayName = OverlayRegistry.nameOf(target)
@@ -115,7 +122,8 @@ fun PayAlertApp(
                     onOpenDiagnostics = { open(Overlay.Diagnostics) },
                     onOpenFaq = { open(Overlay.Faq) },
                     onOpenTerms = { open(Overlay.Terms) },
-                    onOpenBackup = { open(Overlay.Backup) }
+                    onOpenBackup = { open(Overlay.Backup) },
+                    onOpenTeam = { open(Overlay.Team) }
                 )
             }
 
@@ -128,6 +136,7 @@ fun PayAlertApp(
                         Overlay.Terms -> TermsScreen(onBack = ::close)
                         Overlay.Qr -> QrScreen(onBack = ::close)
                         Overlay.Backup -> BackupScreen(onBack = ::close)
+                        Overlay.Team -> TeamScreen(onBack = ::close)
                     }
                 }
             }
@@ -183,7 +192,8 @@ private object OverlayRegistry {
         Overlay.Faq,
         Overlay.Terms,
         Overlay.Qr,
-        Overlay.Backup
+        Overlay.Backup,
+        Overlay.Team
     )
 
     fun nameOf(overlay: Overlay): String = overlay::class.simpleName ?: "Unknown"

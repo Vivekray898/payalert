@@ -1,4 +1,6 @@
+import groovy.json.JsonSlurper
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Base64
 
 plugins {
     // AGP 9 provides Kotlin support itself (built-in Kotlin); the standalone
@@ -6,6 +8,37 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
+}
+
+// Public client settings only. Never load dotenv files or accept a service-role key here.
+// Escape Java string literals rather than interpolating untrusted -P/environment values.
+fun publicBuildConfigString(name: String): String {
+    val value = providers.gradleProperty(name).orElse(providers.environmentVariable(name)).getOrElse("").trim()
+    if (name == "SUPABASE_PUBLISHABLE_KEY" && value.isNotEmpty()) {
+        val publicKey = value.matches(Regex("sb_publishable_[A-Za-z0-9_-]{6,}")) || runCatching {
+            val parts = value.split('.')
+            parts.size == 3 && parts.all { it.matches(Regex("[A-Za-z0-9_-]+")) } &&
+                (JsonSlurper().parseText(String(Base64.getUrlDecoder().decode(parts[1]), Charsets.UTF_8))
+                    as? Map<*, *>)?.get("role") == "anon"
+        }.getOrDefault(false)
+        check(publicKey && value.length <= 4096) {
+            "SUPABASE_PUBLISHABLE_KEY must be a public publishable key or legacy anon JWT. Never embed a secret or service-role key."
+        }
+    }
+    return buildString {
+        append('"')
+        value.forEach { character ->
+            when (character) {
+                '\\' -> append("\\\\")
+                '"' -> append("\\\"")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                else -> if (character.code < 32) append("\\u%04x".format(character.code)) else append(character)
+            }
+        }
+        append('"')
+    }
 }
 
 android {
@@ -22,6 +55,8 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
+        buildConfigField("String", "SUPABASE_URL", publicBuildConfigString("SUPABASE_URL"))
+        buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", publicBuildConfigString("SUPABASE_PUBLISHABLE_KEY"))
     }
 
     buildTypes {
@@ -44,6 +79,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
@@ -101,4 +137,13 @@ dependencies {
 
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2026.02.01"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    constraints {
+        // Android instrumentation needs 1.2.0; keep the tested APK's locked runtime aligned.
+        debugImplementation("androidx.concurrent:concurrent-futures:1.2.0")
+    }
 }
+
+dependencyLocking { lockAllConfigurations() }

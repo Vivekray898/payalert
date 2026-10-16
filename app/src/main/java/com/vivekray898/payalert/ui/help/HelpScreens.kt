@@ -38,8 +38,16 @@ private val FAQ = listOf(
     ),
     FaqEntry(
         "Does PayAlert need internet?",
-        "No. Detection, history, the cashbook and reminders all work fully offline. Nothing " +
-            "is uploaded and no account is required."
+        "Detection, history, the cashbook and reminders work fully offline without an account. " +
+            "Optional Team & devices uses Google sign-in and internet to share device names and " +
+            "pairing records, but does not upload your payments or messages."
+    ),
+    FaqEntry(
+        "How do I connect an employee's phone?",
+        "Open Settings → Team & devices on both phones and sign in. The owner creates a code; " +
+            "the employee chooses I'm an employee and enters it within 10 minutes. Tap Refresh " +
+            "devices on the owner's phone after joining. Pairing connects devices only; payment " +
+            "forwarding and remote announcements are not enabled."
     ),
     FaqEntry(
         "Which banks and apps are supported?",
@@ -88,7 +96,20 @@ fun TermsScreen(onBack: () -> Unit) {
             Text(
                 "PayAlert reads transaction messages and payment notifications only to detect " +
                     "payments, and stores what it detects in a local database on this device. " +
-                    "There is no account and no upload. Uninstalling the app removes the data.",
+                    "These features need no account and never upload payment data. Uninstalling the app removes local data.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+
+        SectionCard(title = "Optional team pairing") {
+            Text(
+                "If you choose Team & devices, Google and Supabase handle sign-in. Supabase stores " +
+                    "your account profile, a random device ID, device name, last-seen time and " +
+                    "pairing records. Connected devices see each other's device names, not SMS, " +
+                    "payment history, cashbook or reminders. Codes expire after 10 minutes and " +
+                    "can be used once. Sign-in tokens are encrypted with Android Keystore and " +
+                    "excluded from backups. Signing out clears local sign-in, but does not remove " +
+                    "cloud connections: use Remove device or Leave team before signing out.",
                 style = MaterialTheme.typography.bodyMedium
             )
         }

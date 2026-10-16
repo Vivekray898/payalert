@@ -58,7 +58,8 @@ fun SettingsScreen(
     onOpenDiagnostics: () -> Unit,
     onOpenFaq: () -> Unit,
     onOpenTerms: () -> Unit,
-    onOpenBackup: () -> Unit
+    onOpenBackup: () -> Unit,
+    onOpenTeam: () -> Unit
 ) {
     val context = LocalContext.current
     val graph = remember { AppGraph.get(context) }
@@ -96,6 +97,13 @@ fun SettingsScreen(
             style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.primary
         )
+
+        SectionCard(title = "Team & devices") {
+            Text("Connect owner and employee phones with a private, single-use pairing code.")
+            OutlinedButton(onClick = onOpenTeam, modifier = Modifier.fillMaxWidth()) {
+                Text("Manage team & devices")
+            }
+        }
 
         SectionCard(title = "Detection") {
             SwitchRow(

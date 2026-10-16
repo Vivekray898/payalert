@@ -65,7 +65,8 @@ commands and raw output behind every status are in **[BUILD_AND_VERIFICATION.md]
 | Home-screen widget | **verified on the launcher with live, self-refreshing content** |
 | Help & FAQ, Privacy & terms, Diagnostics pipeline test, permission deep links, Settings toggles changing behaviour | **verified at runtime** |
 | Unlock-triggered restart, speech speed/pitch/volume, chime & vibration | implemented and compiled, **not yet exercised** (unlock has a recorded environmental blocker) |
-| Balance-only tracking, mandate/autopay parsing, team/pairing UI | **partial / missing** |
+| Balance-only tracking, mandate/autopay parsing | **partial / missing** |
+| Team/pairing | UI/client + SQL implemented; JVM, emulator Compose and local PostgreSQL tests pass; live Google/Supabase integration not verified |
 | Monetization, ads, attribution, third-party identity SDKs | **excluded by requirement** (`not applicable`) |
 
 ---
@@ -83,8 +84,8 @@ allowed deviations.
 | TTS backup service | `services.TtsBackupService` | One engine, warmed by the foreground monitor and queued until ready | **Intentional simplification** |
 | Three separate SMS/notification services | `BankSmsReceiver`, `SmsCreditFallbackService`, notification listener | One shared `PaymentPipeline` behind both detectors | **Intentional simplification** — identical outcomes, one dedup path |
 | Custom sound files | 7 MP3s in `assets/`, 4 in `res/raw/` | Chime generated with `ToneGenerator`; no assets copied | **Intentional deviation** — no copied proprietary assets |
-| Google sign-in + cloud sync | Firebase Auth + Firestore | Local-first; the optional cloud schema exists with no client | **Intentional deviation** (allowed): everything works with no account |
-| Team / device pairing UI | `ui.team.TeamActivity` | Schema only | **Gap** (optional feature; needs a backend) |
+| Google sign-in + cloud sync | Firebase Auth + Firestore | Optional Google browser PKCE for team metadata; local payment features remain account-free | Live OAuth not verified; payment sync remains unbuilt |
+| Team / device pairing UI | `ui.team.TeamActivity` | Settings → Team & devices: secure single-use invites, join/list/rename/remove/leave with Supabase RPCs | UI/client/SQL checks pass in isolation; live two-phone flow not verified; no payment forwarding |
 | Referrals, more-apps cross-promotion | `ui.referral.*`, `ui.apps.MoreAppsActivity` | Absent | **Intentional** — growth features of the reference's business |
 | Subscription / manage subscription / Razorpay / Play Billing / `pairip` licence check | `SubscriptionActivityNew`, `ManageSubscriptionActivity`, Razorpay activities | Absent; the monetization sweep is clean (the only `purchase` hit is a debit *keyword* in the parser rules) | **Intentional deviation** (allowed) — every Pro feature is free |
 | Ads / attribution / Truecaller | AdMob, AdServices, install-referrer, Truecaller SDK | Absent | **Intentional deviation** |

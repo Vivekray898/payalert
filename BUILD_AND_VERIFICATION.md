@@ -1699,3 +1699,60 @@ BUILD SUCCESSFUL in 847ms
 I cannot hear the emulator output. The user should confirm by ear that the gap feels right and that
 the trimmed chime's audible tail is not cut off. Physical vibration, alternate TTS engines, audio
 focus interactions with another active media app, and real-device timing remain unverified.
+
+## 14. Optional owner/employee pairing — 16 October 2026
+
+Supersedes earlier statements that pairing has no UI/client and that the cloud SQL has never
+been executed. No production database was migrated during this work.
+
+### Implemented result
+
+- Settings → Team & devices, optional Google browser PKCE sign-in and encrypted sessions.
+- Owner device creates/copies/replaces/cancels a 12-character, single-use, 10-minute invite.
+- Employee device joins by code; both ends read back device names and membership.
+- Device renaming, confirmed owner removal/employee leave, sign-out and setup/error/loading states.
+- Supabase authorization-checked RPCs, private hashed invites, transactional consume, per-user
+  join-attempt limits and restricted direct device writes. Membership grants no payment-data access.
+- On-device payment features remain unchanged. Payment forwarding, remote announcements, realtime
+  device updates and cloud payment uploads are explicitly not implemented.
+
+### Commands actually run and results
+
+| Command | Result |
+|---|---|
+| `make test` | Passed: **141 JVM tests**, 0 failures, 17 suites; 42 tests are new pairing/client/controller coverage |
+| `make build` | Passed; `app/build/outputs/apk/debug/app-debug.apk` |
+| `./gradlew :app:assembleRelease --write-locks` | Passed; `app/build/outputs/apk/release/app-release-unsigned.apk`; release signing not configured |
+| `make test-device` | Passed: **4 Compose instrumentation tests** on Pixel 8 Pro AVD / Android 14 using isolated in-memory repositories |
+| `TEST_DATABASE_URL=<disposable-local-database> make test-db` | Passed on PostgreSQL **15.19**, both migrations applied and team migration repeated; fixtures rolled back |
+| `./gradlew --offline :app:lintDebug` | Failed: **3 existing errors** (non-observable default locale in Analytics; two missing optional-telephony hardware declarations for SMS permissions). No new pairing lint errors; no suppressions added |
+| `git diff --check` | Passed |
+
+The Compose suite exercises actual create/copy/cancel controls, post-join list refresh, cancel and
+confirm removal, employee input validation/join/leave, unconfigured setup and failed-load refresh.
+It was rerun successfully in normal dark portrait, **375 dp-wide light portrait**, and **dark
+landscape at 2.0 font scale with animator duration scale 0**. Emulator display/night/rotation/font
+and animator settings were returned to their original/default values. This is interaction coverage,
+not a formal TalkBack or pixel-contrast audit.
+
+The PostgreSQL test creates a disposable Auth shim, verifies two accounts' readback, self/expired/
+reused codes, rate limits, role restrictions, direct-table denial, owner removal and employee leave.
+It does not contact hosted Supabase. JVM tests separately verify exact RPC JSON/headers, Google PKCE,
+callback validation, refresh rotation/cancellation, safe errors, redirect refusal and UI state
+transitions. Raw auth callbacks, tokens, credentials and private configuration are not recorded here.
+
+### Reproduction and remaining gap
+
+`README.md` contains exact native/Docker setup, offline test, Supabase migration/provider/callback,
+public build-configuration and Android deployment steps. `Makefile`, `Dockerfile`, `.java-version`
+and `app/gradle.lockfile` add reproducible entry points; the existing daemon toolchain major remains
+25. A machine-specific JDK path was removed from `gradle.properties`.
+
+**Not verified:** a complete live Google account → Supabase Auth/PostgREST → two physical phones
+flow; on-device Keystore/session restoration across a real OAuth login; Docker build/run (no Docker
+executable here); release signing/distribution. No successful live pairing is claimed. Next step:
+configure a disposable hosted Supabase project as documented, install the configured build on two
+phones, pair, refresh both lists, revoke, and verify the next readback on both phones.
+
+The pre-existing notification-icon XML deletion/PNG replacement was left untouched and excluded
+from this feature's intended commit.

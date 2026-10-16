@@ -1,0 +1,18 @@
+# Allowlist: private configuration, logs, caches and evidence never enter build context.
+**
+!Dockerfile
+!.dockerignore
+!gradlew
+!gradlew.bat
+!build.gradle.kts
+!settings.gradle.kts
+!gradle.properties
+!Makefile
+!gradle/
+!gradle/**
+!app/
+!app/build.gradle.kts
+!app/gradle.lockfile
+!app/proguard-rules.pro
+!app/src/
+!app/src/**

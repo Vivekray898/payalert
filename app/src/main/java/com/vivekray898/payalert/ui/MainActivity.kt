@@ -5,9 +5,11 @@ import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -18,6 +20,7 @@ import com.vivekray898.payalert.health.ServiceHealth
 import com.vivekray898.payalert.services.PaymentMonitorService
 import com.vivekray898.payalert.ui.review.ReviewPromptHost
 import com.vivekray898.payalert.ui.theme.PayAlertTheme
+import com.vivekray898.payalert.ui.team.TeamAuthViewModel
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -26,6 +29,7 @@ class MainActivity : ComponentActivity() {
 
     /** Non-null while detection is degraded; rendered as a banner over the whole app. */
     private var healthNotice by mutableStateOf<String?>(null)
+    private val teamAuth: TeamAuthViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,14 +44,32 @@ class MainActivity : ComponentActivity() {
         setContent {
             PayAlertTheme {
                 Box(modifier = Modifier.fillMaxSize()) {
+                    val teamAuthReturn by teamAuth.returnCount.collectAsState()
                     PayAlertApp(
                         healthNotice = healthNotice,
-                        onHealthNoticeAction = { openHealthSettings() }
+                        onHealthNoticeAction = { openHealthSettings() },
+                        teamAuthReturn = teamAuthReturn
                     )
                     ReviewPromptHost(store = reviewStore)
                 }
             }
         }
+        if (savedInstanceState == null) handleTeamCallback(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleTeamCallback(intent)
+    }
+
+    private fun handleTeamCallback(incoming: Intent) {
+        val uri = incoming.data ?: return
+        if (uri.scheme != "com.vivekray898.payalert" || uri.host != "auth" || uri.path != "/callback") return
+        // Remove the one-time callback from the Activity's intent before any recreation.
+        val callback = uri.toString()
+        incoming.data = null
+        teamAuth.complete(callback)
     }
 
     override fun onStart() {

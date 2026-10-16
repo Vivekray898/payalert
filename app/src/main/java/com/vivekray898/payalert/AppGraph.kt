@@ -15,6 +15,8 @@ import com.vivekray898.payalert.pipeline.PaymentPipeline
 import com.vivekray898.payalert.pipeline.RoomPaymentStore
 import com.vivekray898.payalert.settings.AppSettings
 import com.vivekray898.payalert.tts.TtsEngine
+import com.vivekray898.payalert.team.SupabaseTeamRepository
+import com.vivekray898.payalert.team.TeamRepository
 import com.vivekray898.payalert.widget.PayAlertWidgetProvider
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -38,6 +40,8 @@ object AppGraph {
     class Graph(context: Context) {
         val settings: AppSettings = AppSettings(context)
         val database: PayAlertDatabase = PayAlertDatabase.get(context)
+        // Lazy: optional cloud auth does not initialize during local payment detection.
+        val team: TeamRepository by lazy { SupabaseTeamRepository(context) }
 
         /** Rule set loaded from assets; failure is surfaced in diagnostics rather than hidden. */
         val parserConfigLoadFailed: Boolean

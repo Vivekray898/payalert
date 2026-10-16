@@ -1,9 +1,10 @@
 -- =============================================================================
 -- PayAlert — optional cloud-sync schema (NON-DESTRUCTIVE migration)
 -- =============================================================================
--- The shipped Android app is local-first: it has no Supabase client, no account
--- requirement and no sync code. This file is a starting point for an *optional*
--- future sync feature. Nothing in the app reads it.
+-- The Android app is local-first: payment features require no account or sync.
+-- Optional Team & devices uses users/devices plus supabase/team_pairing.sql.
+-- Apply this file FIRST, then team_pairing.sql (which restricts device writes).
+-- Payment/cashbook cloud tables remain unused; pairing grants no access to them.
 --
 -- This script is safe to re-run. It NEVER drops a table or deletes rows: every
 -- statement is CREATE ... IF NOT EXISTS, or replaces a policy/index definition.
