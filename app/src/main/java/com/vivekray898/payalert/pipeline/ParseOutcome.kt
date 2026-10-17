@@ -28,6 +28,7 @@ data class ParseOutcome(
         const val BELOW_MINIMUM = "below_minimum"
         const val KIND_DISABLED = "kind_disabled"
         const val SOURCE_DISABLED = "source_disabled"
+        const val MIRRORED_NOTIFICATION = "mirrored_notification"
         const val DUPLICATE = "duplicate"
         const val LOCAL_ROLE_DISABLED = "local_role_disabled"
     }

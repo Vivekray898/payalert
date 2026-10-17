@@ -34,13 +34,14 @@
     "declined": ["declined", "payment failed", "has failed", "unsuccessful", "insufficient", "cannot be processed", "not processed", "transaction failed"]
   },
   "direction": {
-    "debit": ["debited", "debit", "withdrawn", "withdrawal", "spent", "paid", "sent", "deducted", "purchase", "transferred", "charged", "txn"],
-    "credit": ["credited", "credit", "received", "deposited", "refund", "cashback", "reversed", "added", "money received"],
+    "debit": ["debited", "debit", "withdrawn", "withdrawal", "spent", "paid", "sent", "deducted", "purchase", "transferred", "charged"],
+    "credit": ["credited", "credit", "received", "deposited", "refund", "cashback", "reversed", "added", "money received", "paid you"],
     "debitWins": ["debited", "debit", "spent", "withdrawn", "deducted"]
   },
   "merchant": {
     "credit": [
-      "(?i)\\bfrom\\s+(.{2,40}?)\\s*(?:\\.|,|;|\\bon\\b|\\bat\\b|\\bref\\b|\\butr\\b|\\bupi\\b|\\bbal\\b|$)",
+      "(?i)\\bfrom\\s+(.{2,40}?)\\s*(?:\\.|,|;|\\bon\\b|\\bat\\b|\\bref\\b|\\butr\\b|\\bupi\\b|\\bbal\\b|\\bamount\\b|$)",
+      "(?i)^(.{2,40}?)\\s+paid\\s+you\\b",
       "(?i)\\bby\\s+(.{2,40}?)\\s*(?:\\.|,|;|\\bon\\b|\\bat\\b|\\bref\\b|$)",
       "(?i)\\bat\\s+(.{2,40}?)\\s*(?:\\.|,|;|\\bon\\b|\\bref\\b|$)"
     ],

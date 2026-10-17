@@ -58,6 +58,24 @@ object DedupKeyBuilder {
         return "txn:$kind:$amountText:$currency:$accountPart:$normalizedMerchant:$bucket"
     }
 
+    /**
+     * Cross-detector bridge for notifications that disagree on the account or truncate a name.
+     * It is deliberately less authoritative than [semanticKey] and is only used inside the
+     * short semantic window by [PaymentPipeline].
+     */
+    fun merchantBridgeKey(
+        kind: String,
+        amount: Double,
+        currency: String,
+        merchant: String?,
+        receivedAt: Long
+    ): String {
+        val amountText = BigDecimal.valueOf(amount).setScale(2, RoundingMode.HALF_UP).toPlainString()
+        val merchantPrefix = normalizeMerchant(merchant).take(MERCHANT_BRIDGE_LENGTH)
+        val bucket = receivedAt / 300_000L
+        return "txn-bridge:$kind:$amountText:$currency:$merchantPrefix:$bucket"
+    }
+
     /** Normalize merchant for semantic key. */
     fun normalizeMerchant(merchant: String?): String =
         merchant
@@ -95,4 +113,6 @@ object DedupKeyBuilder {
             ?.replace(Regex("[^a-z0-9]"), "")
             ?.take(24)
             .orEmpty()
+
+    private const val MERCHANT_BRIDGE_LENGTH = 20
 }

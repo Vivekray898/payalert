@@ -115,6 +115,31 @@ class ParserRegistryTest {
     }
 
     @Test
+    fun `google pay paid you notification is a credit`() {
+        val parsed = parser.parse(
+            "Mr SUNIL CHANDRA BARMAN paid you ₹50.00 Tap to view",
+            "com.google.android.apps.nbu.paisa.user"
+        )!!
+
+        assertEquals("credit", parsed.kind)
+        assertEquals(50.00, parsed.amount, 0.001)
+        assertEquals("Mr SUNIL CHANDRA BARMAN", parsed.merchant)
+    }
+
+    @Test
+    fun `bank app credit merchant stops before amount clause`() {
+        val parsed = parser.parse(
+            "₹50.00 received from Mr SUNIL CHANDRA BARMAN Amount credited to XX8521. Check out details.",
+            "com.kotak811mobilebankingapp.instantsavingsupiscanandpayrecharge"
+        )!!
+
+        assertEquals("credit", parsed.kind)
+        assertEquals(50.00, parsed.amount, 0.001)
+        assertEquals("Mr SUNIL CHANDRA BARMAN", parsed.merchant)
+        assertEquals("XX8521", parsed.account)
+    }
+
+    @Test
     fun `paytm debit`() {
         val parsed = parser.parse("Rs.500 paid to Paytm Recharge", "net.one97.paytm")!!
 
@@ -195,6 +220,11 @@ class ParserRegistryTest {
     @Test
     fun `balance-only message without a direction is not a payment`() {
         assertNull(parser.parse("Your account balance is Rs 1,000.00 as on 12-05-24", "AD-HDFCBK"))
+    }
+
+    @Test
+    fun `generic transaction label does not create a debit`() {
+        assertNull(parser.parse("Txn status: Rs 50.00, tap to view", "com.google.android.apps.nbu.paisa.user"))
     }
 
     @Test

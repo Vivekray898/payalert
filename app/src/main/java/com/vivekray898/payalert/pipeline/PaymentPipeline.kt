@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.Locale
 
 /**
  * The single pipeline every detector funnels into:
@@ -75,6 +76,14 @@ class PaymentPipeline(
             return record(outcome(ParseOutcome.SOURCE_DISABLED, source, sourceDetail, now))
         }
 
+        // Messaging apps and caller-ID apps repost the same bank SMS as a notification. When SMS
+        // detection is enabled, the SMS receiver is the authoritative copy; parsing the repost as
+        // a second detector input creates a duplicate before semantic deduplication even gets a
+        // chance to compare the two different notification shapes.
+        if (source == "notification" && snapshot.detectSms && isSmsMirror(sourceDetail)) {
+            return record(outcome(ParseOutcome.MIRRORED_NOTIFICATION, source, sourceDetail, now))
+        }
+
         val parsed = parser.parse(text, sourceDetail)
             ?: return record(outcome(ParseOutcome.NO_MATCH, source, sourceDetail, now))
 
@@ -128,8 +137,23 @@ class PaymentPipeline(
             account = parsed.account,
             receivedAt = now
         )
+        // Some notification variants omit the account even though the SMS includes it. Keep a
+        // merchant-based bridge key so those two representations can still collapse. The strong
+        // account-aware key remains the primary key when both notifications carry an account.
+        val merchantBridge = parsed.merchant
+            ?.takeIf { it.isNotBlank() }
+            ?.let {
+                DedupKeyBuilder.merchantBridgeKey(
+                    kind = parsed.kind,
+                    amount = parsed.amount,
+                    currency = parsed.currency,
+                    merchant = it,
+                    receivedAt = now
+                )
+            }
+        val semanticKeys = listOf(semantic, merchantBridge).filterNotNull().distinct()
 
-        if (store.containsExact(exact) || store.containsSemantic(semantic)) {
+        if (store.containsExact(exact) || semanticKeys.any { store.containsSemantic(it) }) {
             return record(
                 outcome(ParseOutcome.DUPLICATE, source, sourceDetail, now).copy(
                     amount = parsed.amount,
@@ -160,7 +184,7 @@ class PaymentPipeline(
         // Write both keys on every accepted event. INSERT OR IGNORE keeps the
         // primary-key guard as the source of truth for exact keys.
         store.insertDedup(exact, semantic, now)
-        store.insertSemantic(semantic, now)
+        semanticKeys.forEach { key -> store.insertSemantic(key, now) }
         store.insertEvent(event)
         store.pruneExactBefore(now - PRUNE_AFTER_MILLIS)
         store.pruneSemanticBefore(now - SEMANTIC_PRUNE_AFTER_MILLIS)
@@ -211,8 +235,18 @@ class PaymentPipeline(
         return outcome
     }
 
+    private fun isSmsMirror(sourceDetail: String?): Boolean =
+        sourceDetail?.lowercase(Locale.US) in SMS_MIRROR_PACKAGES
+
     private companion object {
         const val PRUNE_AFTER_MILLIS = 3L * 24 * 60 * 60 * 1000
         const val SEMANTIC_PRUNE_AFTER_MILLIS = 10L * 60 * 1000
+        val SMS_MIRROR_PACKAGES = setOf(
+            "com.android.messaging",
+            "com.google.android.apps.messaging",
+            "com.samsung.android.messaging",
+            "com.microsoft.android.smsorganizer",
+            "com.truecaller"
+        )
     }
 }

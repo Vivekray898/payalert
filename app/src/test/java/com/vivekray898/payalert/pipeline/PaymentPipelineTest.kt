@@ -140,14 +140,69 @@ class PaymentPipelineTest {
         assertEquals(ParseOutcome.DUPLICATE, r3.reason)
         assertEquals(1, store.eventCount())
         assertEquals(1, tts.size)
-        // All three parsed to one semantic key — assert it directly, not just the outcome.
+        // The accepted event has one strong semantic key plus a shorter merchant bridge key;
+        // assert the strong key directly, not just the outcome.
         val semanticKeys = store.rows().mapNotNull { it.semanticKey }.toSet()
-        assertEquals(1, semanticKeys.size)
-        assertTrue("semantic key should be txn-shaped", semanticKeys.single().startsWith("txn:credit:500.00:INR:-:zomato:"))
+        assertEquals(2, semanticKeys.size)
+        assertTrue(
+            "semantic key should be txn-shaped",
+            semanticKeys.any { it.startsWith("txn:credit:500.00:INR:-:zomato:") }
+        )
         // The exact keys differ (three UTRs), proving the semantic tier did the collapsing:
         // only the first payment's exact key was stored, plus one semantic row.
         assertEquals(1, store.rows().count { it.dedupKey.startsWith("utr:") })
-        assertEquals(1, store.rows().count { it.semanticKey != null && it.dedupKey == it.semanticKey })
+        assertEquals(2, store.rows().count { it.semanticKey != null && it.dedupKey == it.semanticKey })
+    }
+
+    @Test
+    fun `bank sms and differently shaped payment notifications collapse to one credit`() = runBlocking {
+        val store = FakePaymentStore()
+        val tts = CopyOnWriteArrayList<String>()
+        val pipeline = pipeline(store, tts)
+
+        val sms = pipeline.handle(
+            "Received Rs.50.00 in your Kotak Bank AC 8521 from Mr SUNIL CHANDRA BAR on 17-10-26.UPI Ref:665691945493",
+            "sms",
+            "JD-KOTAKB-S",
+            baseNow
+        )
+        val gpay = pipeline.handle(
+            "Mr SUNIL CHANDRA BARMAN paid you ₹50.00 Tap to view",
+            "notification",
+            "com.google.android.apps.nbu.paisa.user",
+            baseNow + 1_000
+        )
+        val bankApp = pipeline.handle(
+            "₹50.00 received from Mr SUNIL CHANDRA BARMAN Amount credited to XX8521. Check out details.",
+            "notification",
+            "com.kotak811mobilebankingapp.instantsavingsupiscanandpayrecharge",
+            baseNow + 2_000
+        )
+
+        assertEquals(ParseOutcome.ACCEPTED, sms.reason)
+        assertEquals(ParseOutcome.DUPLICATE, gpay.reason)
+        assertEquals(ParseOutcome.DUPLICATE, bankApp.reason)
+        assertEquals("credit", sms.kind)
+        assertEquals("credit", gpay.kind)
+        assertEquals("credit", bankApp.kind)
+        assertEquals(1, store.eventCount())
+        assertEquals(1, tts.size)
+    }
+
+    @Test
+    fun `sms mirror notification is ignored when sms detection is enabled`() = runBlocking {
+        val store = FakePaymentStore()
+        val pipeline = pipeline(store)
+
+        val outcome = pipeline.handle(
+            "Received Rs.50.00 in your Kotak Bank AC 8521 from Mr SUNIL CHANDRA BAR",
+            "notification",
+            "com.truecaller",
+            baseNow
+        )
+
+        assertEquals(ParseOutcome.MIRRORED_NOTIFICATION, outcome.reason)
+        assertEquals(0, store.eventCount())
     }
 
     // ------------------------------------------------------------------
