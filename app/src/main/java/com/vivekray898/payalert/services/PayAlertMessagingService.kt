@@ -2,16 +2,15 @@ package com.vivekray898.payalert.services
 
 import android.util.Log
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
+import androidx.work.workDataOf
+import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
-import com.vivekray898.payalert.AppGraph
+import com.vivekray898.payalert.relay.RelayFcmContract
 import com.vivekray898.payalert.relay.RelayMessageFcmWork
 import com.vivekray898.payalert.relay.RelayUpdateFcmTokenWorker
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 
 /**
  * Firebase Cloud Messaging service that wakes the employee app when a relay message is delivered.
@@ -28,30 +27,27 @@ class PayAlertMessagingService : FirebaseMessagingService() {
     override fun onNewToken(token: String) {
         super.onNewToken(token)
         Log.i(TAG, "FCM token refreshed: ${token.take(20)}...")
-        // Schedule a one-time work to update the server with the new token.
-        val work = OneTimeWorkRequestBuilder<RelayUpdateFcmTokenWorker>()
-            .build()
-        WorkManager.getInstance(this).enqueueUniqueWork(
-            "relay_update_fcm_token",
-            androidx.work.ExistingWorkPolicy.REPLACE,
-            work
-        )
+        enqueueTokenUpdate(this, token)
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
         Log.d(TAG, "FCM message received: ${message.data}")
-        val type = message.data["type"]
+        val type = message.data[RelayFcmContract.TYPE_KEY]
         when (type) {
-            "relay_message" -> {
-                val messageId = message.data["message_id"]
+            RelayFcmContract.RELAY_MESSAGE_TYPE -> {
+                val messageId = RelayFcmContract.relayMessageId(message.data)
                 if (messageId != null) {
                     Log.i(TAG, "relay_message received: $messageId")
+                    // This visible high-importance notification is posted before
+                    // the network fetch so the device gets immediate user-visible
+                    // feedback even while the authenticated RPC is starting.
+                    RelayAnnouncementNotifier(this).showWakeUp(messageId)
                     handleRelayMessage(messageId)
                 } else {
                     Log.w(TAG, "relay_message without message_id")
                 }
             }
-            "pairing_changed" -> {
+            RelayFcmContract.PAIRING_CHANGED_TYPE -> {
                 Log.i(TAG, "pairing_changed received")
                 handlePairingChanged()
             }
@@ -60,8 +56,11 @@ class PayAlertMessagingService : FirebaseMessagingService() {
     }
 
     private fun handleRelayMessage(messageId: String) {
-        // Hand off to a one-shot worker to avoid blocking the FCM callback.
+        // Hand off to expedited work so the FCM callback remains short while the
+        // relay fetch runs inside WorkManager's background execution window.
         val work = OneTimeWorkRequestBuilder<RelayMessageFcmWork>()
+            .setInputData(workDataOf(RelayMessageFcmWork.KEY_MESSAGE_ID to messageId))
+            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .addTag("relay_fcm")
             .build()
         WorkManager.getInstance(this).enqueueUniqueWork(
@@ -72,18 +71,47 @@ class PayAlertMessagingService : FirebaseMessagingService() {
     }
 
     private fun handlePairingChanged() {
-        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-            try {
-                val graph = AppGraph.get(this@PayAlertMessagingService)
-                graph.teamController.refresh()
-                Log.i(TAG, "Pairing refreshed after FCM notification")
-            } catch (e: Exception) {
-                Log.w(TAG, "Pairing refresh failed: ${e.message}")
+        androidx.work.OneTimeWorkRequestBuilder<RelayMessageFcmWork>()
+            .setInputData(workDataOf(RelayMessageFcmWork.KEY_MESSAGE_ID to "pairing_changed"))
+            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            .build()
+            .also { request ->
+                WorkManager.getInstance(this).enqueueUniqueWork(
+                    "relay_pairing_changed",
+                    androidx.work.ExistingWorkPolicy.REPLACE,
+                    request
+                )
             }
-        }
+        Log.i(TAG, "Pairing refresh scheduled")
     }
 
     companion object {
         private const val TAG = "PayAlertFcm"
+
+        /** Refreshes the current token after sign-in/pairing, not only on rotation. */
+        fun refreshToken(context: android.content.Context) {
+            runCatching {
+                FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
+                    enqueueTokenUpdate(context, token)
+                }.addOnFailureListener { error ->
+                    Log.w(TAG, "FCM token lookup failed: ${error.message}")
+                }
+            }.onFailure { error ->
+                Log.w(TAG, "FCM token service unavailable: ${error.message}")
+            }
+        }
+
+        private fun enqueueTokenUpdate(context: android.content.Context, token: String) {
+            val trimmed = token.trim()
+            if (trimmed.isEmpty()) return
+            val work = OneTimeWorkRequestBuilder<RelayUpdateFcmTokenWorker>()
+                .setInputData(workDataOf(RelayUpdateFcmTokenWorker.KEY_FCM_TOKEN to trimmed))
+                .build()
+            WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+                "relay_update_fcm_token",
+                androidx.work.ExistingWorkPolicy.REPLACE,
+                work
+            )
+        }
     }
 }

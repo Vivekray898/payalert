@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import com.vivekray898.payalert.AppGraph
 import com.vivekray898.payalert.relay.EmployeeRealtimeService
+import com.vivekray898.payalert.relay.RelayPumpScheduler
 import com.vivekray898.payalert.role.LocalDeviceRole
 import com.vivekray898.payalert.reminders.ReminderScheduler
 import kotlinx.coroutines.CoroutineScope
@@ -29,6 +30,7 @@ class BootReceiver : BroadcastReceiver() {
                 // Start Realtime service for employee devices after boot
                 if (graph.settings.localDeviceRoleState.currentRole == LocalDeviceRole.EMPLOYEE) {
                     EmployeeRealtimeService.start(context)
+                    RelayPumpScheduler.schedule(context)
                 }
 
                 val pendingResult = goAsync()

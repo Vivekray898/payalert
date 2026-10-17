@@ -1,7 +1,7 @@
--- Enable Supabase Realtime for relay_messages table.
+-- Enable Supabase Realtime for relay_private.envelopes.
 -- Apply AFTER supabase/encrypted_relay.sql. This file is idempotent and safe to re-run.
 --
--- The relay_messages table must be in the supabase_realtime publication so that
+-- The relay_private.envelopes table must be in the supabase_realtime publication so that
 -- postgres_changes WebSocket subscriptions can deliver INSERT events to clients.
 -- replica identity FULL is required for RLS filters (employee_device_id=eq(...))
 -- to evaluate correctly on each incoming row.

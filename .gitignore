@@ -1,6 +1,7 @@
 # Gradle
 .gradle/
 .gradle-user-home/
+.kotlin/
 build/
 **/build/
 
@@ -32,6 +33,7 @@ captures/
 .env.*
 !.env.example
 secrets.properties
+app/firebase-service-account.json
 
 # Claude local settings
 .claude/

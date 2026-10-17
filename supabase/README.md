@@ -8,7 +8,8 @@
 | `team_pairing.sql` | Team pairing tables, RPCs, RLS. |
 | `encrypted_relay.sql` | Encrypted owner → employee relay: `device_keys`, `peer_key_bindings`, `envelopes`, plus the authenticated RPCs. |
 | `realtime_relay.sql` | Adds the relay table to the `supabase_realtime` publication. |
-| `fcm_token.sql` | Adds `devices.fcm_updated_at`. |
+| `migrations/005_fcm_token.sql` | Adds FCM token freshness metadata. |
+| `migrations/006_fcm_wakeup.sql` | Adds the ownership-checked RPC used to register device tokens. |
 | `tests/team_pairing.sql` | SQL test suite run against a disposable PostgreSQL cluster. |
 | `functions/relay-notify/index.ts` | Edge Function that sends an FCM data-only push when a relay row is inserted. |
 
@@ -18,9 +19,10 @@
 2. `team_pairing.sql`
 3. `encrypted_relay.sql`
 4. `realtime_relay.sql`
-5. `fcm_token.sql`
+5. `migrations/005_fcm_token.sql`
+6. `migrations/006_fcm_wakeup.sql`
 
-All five are non-destructive and safe to re-run. Apply via the Supabase SQL editor or:
+All six are non-destructive and safe to re-run. Apply via the Supabase SQL editor or:
 
 ```bash
 supabase db push --linked
@@ -49,17 +51,20 @@ Expected output:
 
 In the Supabase Dashboard → Database → Webhooks:
 
-- Table: `relay_messages` (or `relay_private.envelopes` — the webhook table must match the Edge Function's expectation)
+- Schema/table: `relay_private.envelopes`
 - Events: `INSERT`
 - Type: `Supabase Edge Function`
 - Function: `relay-notify`
+- Custom header: `x-relay-webhook-secret: <same value as RELAY_WEBHOOK_SECRET>`
 
 ### 3. Set the Edge Function secrets
 
 ```bash
 supabase secrets set \
   SUPABASE_SERVICE_ROLE_KEY=<value> \
-  FCM_SERVICE_ACCOUNT_JSON='<json>'
+  FCM_SERVICE_ACCOUNT_JSON='<json>' \
+  FIREBASE_PROJECT_ID=payment-announcer-43071 \
+  RELAY_WEBHOOK_SECRET='<random-shared-secret>'
 ```
 
 **Never commit these values.** They live in the project's secret store, not in this repository.
@@ -79,11 +84,11 @@ supabase functions deploy relay-notify
 
 The relay table is in the `relay_private` schema. `encrypted_relay.sql` revokes all privileges on it from `anon` and `authenticated`, and adds a RESTRICTIVE `relay_no_client_access` policy with `USING (false)`. Supabase Realtime filters each `postgres_changes` event by evaluating RLS as the subscriber's role, so an authenticated subscriber matches zero rows. The envelope table is invisible to clients by design; every read goes through the SECURITY DEFINER RPCs so the server stays payload-blind.
 
-The employee device therefore receives through the existing authenticated `relay_fetch` RPC, pumped on a short cadence by `EmployeeRealtimeService` (foreground, 10 s) plus `RelayPumpScheduler` (WorkManager, 15 min floor), with `PayAlertMessagingService` as the wake-up fallback when FCM is configured. This keeps the server payload-blind.
+The employee device therefore receives through the existing authenticated `relay_fetch` RPC, pumped on a short cadence by `EmployeeRealtimeService` (foreground, 10 s) plus `RelayPumpScheduler` (WorkManager, 15 min floor), with `PayAlertMessagingService` as the immediate FCM wake-up path when FCM is configured. The app immediately posts a temporary high-importance notification, fetches/decrypts the envelope locally, and replaces it with the actual announcement. This keeps the server payload-blind.
 
-## FCM is a fallback, not the primary
+## FCM is the immediate wake-up path
 
 - **Primary:** the employee-side pump (`EmployeeRealtimeService` + `RelayPumpScheduler`).
-- **Fallback:** FCM push carrying `message_id` only. The employee app fetches the envelope via the authenticated `relay_fetch` RPC after wake-up.
+- **Immediate wake-up:** high-priority, data-only FCM push carrying `message_id` only. The employee app fetches the envelope via the authenticated `relay_fetch` RPC after wake-up and posts a temporary visible notification before the fetch completes.
 
 The push never contains the encrypted payload. Leaking it into FCM would expose it to Google's servers and the notification tray.

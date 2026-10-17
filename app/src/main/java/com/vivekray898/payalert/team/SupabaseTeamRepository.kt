@@ -174,6 +174,17 @@ class SupabaseTeamRepository internal constructor(
         Unit
     }
 
+    override suspend fun updateFcmToken(token: String) = onIo {
+        val value = token.trim()
+        if (value.isEmpty() || value.length > MAX_FCM_TOKEN_CHARS) {
+            throw TeamClientException("The push notification token was not valid.")
+        }
+        rpc("team_update_fcm_token") { id ->
+            mapOf("p_device_id" to id, "p_device_token" to value)
+        }
+        Unit
+    }
+
     private suspend fun rpc(name: String, parameters: (String) -> Map<String, String>): String {
         val session = validSession()
         val id = storage.deviceId(requireConfig().origin, session.account.userId)
@@ -385,6 +396,7 @@ class SupabaseTeamRepository internal constructor(
         const val MAX_TTL_SECONDS = 604_800L
         const val MAX_PUBLIC_KEY_CHARS = 4_096
         const val MAX_ENVELOPE_CHARS = 1_048_576
+        const val MAX_FCM_TOKEN_CHARS = 4_096
     }
 }
 

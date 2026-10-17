@@ -20,9 +20,7 @@ import java.util.concurrent.CopyOnWriteArrayList
  * dedup critical section — parse, check, insert — is exercised exactly as production
  * runs it, without a Room database (which needs an Android runtime).
  *
- * The three payloads are the notification bodies used by the on-device stub test in
- * BUILD_AND_VERIFICATION.md section 10: one payment, three apps, three different UTRs,
- * so only the semantic tier can collapse them.
+     * The fixtures cover both same-payment replays and conflicting transaction references.
  */
 class PaymentPipelineTest {
 
@@ -122,11 +120,11 @@ class PaymentPipelineTest {
     }
 
     // ------------------------------------------------------------------
-    // Test A — sequential cross-app semantic collapse
+    // Test A — sequential cross-app identity handling
     // ------------------------------------------------------------------
 
     @Test
-    fun `Test A - three apps three wordings one payment collapse sequentially`() = runBlocking {
+    fun `Test A - different references are retained as separate payments`() = runBlocking {
         val store = FakePaymentStore()
         val tts = CopyOnWriteArrayList<String>()
         val pipeline = pipeline(store, tts)
@@ -136,22 +134,10 @@ class PaymentPipelineTest {
         val r3 = pipeline.handle(gpayText, "notification", "com.google.android.apps.nbu.paisa.user", baseNow + 400)
 
         assertEquals(ParseOutcome.ACCEPTED, r1.reason)
-        assertEquals(ParseOutcome.DUPLICATE, r2.reason)
-        assertEquals(ParseOutcome.DUPLICATE, r3.reason)
-        assertEquals(1, store.eventCount())
-        assertEquals(1, tts.size)
-        // The accepted event has one strong semantic key plus a shorter merchant bridge key;
-        // assert the strong key directly, not just the outcome.
-        val semanticKeys = store.rows().mapNotNull { it.semanticKey }.toSet()
-        assertEquals(2, semanticKeys.size)
-        assertTrue(
-            "semantic key should be txn-shaped",
-            semanticKeys.any { it.startsWith("txn:credit:500.00:INR:-:zomato:") }
-        )
-        // The exact keys differ (three UTRs), proving the semantic tier did the collapsing:
-        // only the first payment's exact key was stored, plus one semantic row.
-        assertEquals(1, store.rows().count { it.dedupKey.startsWith("utr:") })
-        assertEquals(2, store.rows().count { it.semanticKey != null && it.dedupKey == it.semanticKey })
+        assertEquals(ParseOutcome.ACCEPTED, r2.reason)
+        assertEquals(ParseOutcome.ACCEPTED, r3.reason)
+        assertEquals(3, store.eventCount())
+        assertEquals(3, tts.size)
     }
 
     @Test
@@ -190,6 +176,82 @@ class PaymentPipelineTest {
     }
 
     @Test
+    fun `phonepe notification and bipul saha sms for one payment collapse`() = runBlocking {
+        val store = FakePaymentStore()
+        val tts = CopyOnWriteArrayList<String>()
+        val pipeline = pipeline(store, tts)
+
+        // The listener must pass the PhonePe body, not the app title "PhonePe Payment from
+        // PhonePe", to the parser. Both detector paths then describe the same payer.
+        val notification = pipeline.handle(
+            "BIPUL SAHA paid you Rs 10",
+            "notification",
+            "com.phonepe.app",
+            baseNow,
+            eventId = "notification:phonepe-bipul-1"
+        )
+        val sms = pipeline.handle(
+            "Received Rs 10 from BIPUL SAHA",
+            "sms",
+            "JD-PHONEPE-S",
+            baseNow + 1_000,
+            eventId = "sms:JD-PHONEPE-S:${baseNow + 1_000}:Received Rs 10 from BIPUL SAHA"
+        )
+
+        assertEquals(ParseOutcome.ACCEPTED, notification.reason)
+        assertEquals(ParseOutcome.DUPLICATE, sms.reason)
+        assertEquals("BIPUL SAHA", notification.merchant)
+        assertEquals("BIPUL SAHA", sms.merchant)
+        assertEquals(1, store.eventCount())
+        assertEquals(1, tts.size)
+    }
+
+    @Test
+    fun `notification and sms replay is suppressed at two four and six minutes`() = runBlocking {
+        listOf(2, 4, 6).forEach { minutes ->
+            val store = FakePaymentStore()
+            val pipeline = pipeline(store)
+            val notification = pipeline.handle(
+                "Rahul sent you Rs 500",
+                "notification",
+                "com.phonepe.app",
+                baseNow,
+                eventId = "notification-replay-$minutes"
+            )
+            val sms = pipeline.handle(
+                "Received Rs 500 from Rahul",
+                "sms",
+                "JD-PHONEPE-S",
+                baseNow + minutes * 60_000L,
+                eventId = "sms-replay-$minutes"
+            )
+
+            assertEquals("notification at $minutes minutes", ParseOutcome.ACCEPTED, notification.reason)
+            assertEquals("SMS replay at $minutes minutes", ParseOutcome.DUPLICATE, sms.reason)
+            assertEquals("one event at $minutes minutes", 1, store.eventCount())
+        }
+    }
+
+    @Test
+    fun `bonus promotion is not saved or announced as a credit`() = runBlocking {
+        val store = FakePaymentStore()
+        val tts = CopyOnWriteArrayList<String>()
+        val pipeline = pipeline(store, tts)
+
+        val outcome = pipeline.handle(
+            "You received 300 rupees bonus from this card",
+            "notification",
+            "com.phonepe.app",
+            baseNow,
+            eventId = "notification:bonus-promotion-1"
+        )
+
+        assertEquals(ParseOutcome.NO_MATCH, outcome.reason)
+        assertEquals(0, store.eventCount())
+        assertTrue(tts.isEmpty())
+    }
+
+    @Test
     fun `sms mirror notification is ignored when sms detection is enabled`() = runBlocking {
         val store = FakePaymentStore()
         val pipeline = pipeline(store)
@@ -206,7 +268,7 @@ class PaymentPipelineTest {
     }
 
     @Test
-    fun `same source events with distinct notification identities are not semantic duplicates`() = runBlocking {
+    fun `same source replay without a reference is suppressed across six minutes`() = runBlocking {
         val store = FakePaymentStore()
         val pipeline = pipeline(store)
 
@@ -233,9 +295,38 @@ class PaymentPipelineTest {
         )
 
         assertEquals(ParseOutcome.ACCEPTED, first.reason)
-        assertEquals(ParseOutcome.ACCEPTED, second.reason)
+        assertEquals(ParseOutcome.DUPLICATE, second.reason)
         assertEquals(ParseOutcome.DUPLICATE, repeat.reason)
-        assertEquals(2, store.eventCount())
+        assertEquals(1, store.eventCount())
+    }
+
+    @Test
+    fun `same source debit notifications with distinct identities collapse`() = runBlocking {
+        val store = FakePaymentStore()
+        val announcements = CopyOnWriteArrayList<String>()
+        val pipeline = pipeline(store, announcements)
+
+        val first = pipeline.handle(
+            "You paid Rs 99 to Netflix",
+            "notification",
+            "com.google.android.apps.nbu.paisa.user",
+            baseNow,
+            eventId = "notification-debit-1"
+        )
+        val repeat = pipeline.handle(
+            "You paid Rs 99 to Netflix",
+            "notification",
+            "com.google.android.apps.nbu.paisa.user",
+            baseNow + 500,
+            eventId = "notification-debit-2"
+        )
+
+        assertEquals(ParseOutcome.ACCEPTED, first.reason)
+        assertEquals(ParseOutcome.DUPLICATE, repeat.reason)
+        assertEquals("debit", first.kind)
+        assertEquals("debit", repeat.kind)
+        assertEquals(1, store.eventCount())
+        assertEquals(1, announcements.size)
     }
 
     // ------------------------------------------------------------------
@@ -252,9 +343,9 @@ class PaymentPipelineTest {
         val pipeline = pipeline(store, tts)
 
         val results = listOf(
-            async(Dispatchers.Default) { pipeline.handle(phonePeText, "notification", "com.phonepe.app", baseNow) },
-            async(Dispatchers.Default) { pipeline.handle(paytmText, "notification", "net.one97.paytm", baseNow + 200) },
-            async(Dispatchers.Default) { pipeline.handle(gpayText, "notification", "com.google.android.apps.nbu.paisa.user", baseNow + 400) }
+            async(Dispatchers.Default) { pipeline.handle("You received Rs 500 from Zomato", "notification", "com.phonepe.app", baseNow) },
+            async(Dispatchers.Default) { pipeline.handle("You received Rs 500 from Zomato", "notification", "net.one97.paytm", baseNow + 200) },
+            async(Dispatchers.Default) { pipeline.handle("You received Rs 500 from Zomato", "notification", "com.google.android.apps.nbu.paisa.user", baseNow + 400) }
         ).awaitAll()
 
         val reasons = results.map { it.reason }
@@ -275,9 +366,9 @@ class PaymentPipelineTest {
         val store = FakePaymentStore(checkDelayMs = 100, insertDelayMs = 50)
 
         val results = listOf(
-            async(Dispatchers.Default) { pipeline(store).handle(phonePeText, "notification", "com.phonepe.app", baseNow) },
-            async(Dispatchers.Default) { pipeline(store).handle(paytmText, "notification", "net.one97.paytm", baseNow + 200) },
-            async(Dispatchers.Default) { pipeline(store).handle(gpayText, "notification", "com.google.android.apps.nbu.paisa.user", baseNow + 400) }
+            async(Dispatchers.Default) { pipeline(store).handle("You received Rs 500 from Zomato", "notification", "com.phonepe.app", baseNow) },
+            async(Dispatchers.Default) { pipeline(store).handle("You received Rs 500 from Zomato", "notification", "net.one97.paytm", baseNow + 200) },
+            async(Dispatchers.Default) { pipeline(store).handle("You received Rs 500 from Zomato", "notification", "com.google.android.apps.nbu.paisa.user", baseNow + 400) }
         ).awaitAll()
 
         assertEquals(
@@ -414,14 +505,17 @@ class PaymentPipelineTest {
             return hit
         }
 
-        override suspend fun containsSemanticFromOtherSource(key: String, source: String): Boolean {
-            stamp("check-semantic begin")
+        override suspend fun semanticCandidates(
+            prefix: String,
+            cutoff: Long
+        ): List<PaymentStore.SemanticCandidate> {
+            stamp("check-semantic-candidates begin")
             if (checkDelayMs > 0) delay(checkDelayMs)
-            val hit = rowsBy.values.any {
-                it.semanticKey == key && (it.source == null || it.source != source)
-            }
-            stamp("check-semantic end hit=$hit")
-            return hit
+            val candidates = rowsBy.values
+                .filter { it.semanticKey?.startsWith(prefix) == true && it.seenAt >= cutoff }
+                .map { PaymentStore.SemanticCandidate(it.dedupKey, it.semanticKey, it.seenAt, it.source) }
+            stamp("check-semantic-candidates end count=${candidates.size}")
+            return candidates
         }
 
         override suspend fun insertDedup(

@@ -157,9 +157,25 @@ class PaymentPipeline(
             }
         val semanticKeys = listOf(semantic, merchantBridge).filterNotNull().distinct()
 
-        if (store.containsExact(exact) ||
-            semanticKeys.any { store.containsSemanticFromOtherSource(it, dedupSource) }
-        ) {
+        val semanticCandidates = semanticKeys
+            .flatMap { key ->
+                val prefix = key.substringBeforeLast(':') + ":"
+                store.semanticCandidates(
+                    prefix = prefix,
+                    cutoff = now - com.vivekray898.payalert.parsers.DedupKeyBuilder.SEMANTIC_LOOKBACK_MILLIS
+                )
+            }
+            .distinctBy { it.dedupKey }
+        val currentReference = parsed.utr?.trim()?.uppercase(Locale.US)
+        val conflictingReference = currentReference != null && semanticCandidates.any { candidate ->
+            candidate.dedupKey.startsWith("utr:") &&
+                candidate.dedupKey.substringAfter("utr:").substringBefore('|') != currentReference
+        }
+        // A rolling lookup catches a notification/SMS replay even when it crosses a fixed
+        // five-minute bucket and also handles a same-app repost with a new notification id.
+        // A different non-blank UTR remains authoritative evidence of a second payment.
+        val semanticDuplicate = !conflictingReference && semanticCandidates.isNotEmpty()
+        if (store.containsExact(exact) || semanticDuplicate) {
             return record(
                 outcome(ParseOutcome.DUPLICATE, source, sourceDetail, now).copy(
                     amount = parsed.amount,

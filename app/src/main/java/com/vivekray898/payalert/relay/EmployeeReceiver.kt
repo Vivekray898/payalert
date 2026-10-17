@@ -28,7 +28,9 @@ class EmployeeReceiver(
     private val received: ReceivedAnnouncementDao,
     private val announcementTemplate: () -> String,
     private val announce: (String) -> Unit,
-    private val clock: () -> Long = System::currentTimeMillis
+    private val clock: () -> Long = System::currentTimeMillis,
+    /** Local, already-authenticated user-visible notification; never called for bad ciphertext. */
+    private val notify: (messageId: String, text: String) -> Unit = { _, _ -> }
 ) {
 
     /**
@@ -86,6 +88,7 @@ class EmployeeReceiver(
                         // Log the announcement for latency measurement
                         val announceText = RelayAnnouncement.format(announcementTemplate(), payload)
                         android.util.Log.i("PayAlertRelay", "employee_announced message_id=${message.messageId} t=${now} text=$announceText")
+                        notify(message.messageId, announceText)
                         announce(announceText)
                         announced++
                     }
@@ -136,7 +139,9 @@ class EmployeeReceiver(
             )
             imported++
             if (received.claimForAnnouncement(row.messageId, now, now) == 1) {
-                announce(RelayAnnouncement.format(announcementTemplate(), payload))
+                val announceText = RelayAnnouncement.format(announcementTemplate(), payload)
+                notify(row.messageId, announceText)
+                announce(announceText)
                 announced++
             }
         }

@@ -4,6 +4,7 @@
 
 BEGIN;
 
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS device_token text;
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS fcm_updated_at timestamptz;
 
 COMMIT;

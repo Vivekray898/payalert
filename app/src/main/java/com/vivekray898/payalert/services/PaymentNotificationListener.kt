@@ -53,6 +53,10 @@ class PaymentNotificationListener : NotificationListenerService() {
             return
         }
         val graph = AppGraph.get(applicationContext)
+        if (!graph.settings.state.value.allowsNotificationPackage(sbn.packageName)) {
+            Log.d(TAG, "Ignoring notification from disabled payment app ${sbn.packageName}")
+            return
+        }
         if (!graph.parser.isLikelyNotificationSource(sbn.packageName, text)) {
             Log.d(TAG, "Ignoring notification from unsupported source ${sbn.packageName}")
             return
@@ -65,26 +69,23 @@ class PaymentNotificationListener : NotificationListenerService() {
                 text = text,
                 source = SOURCE,
                 sourceDetail = sourceDetail,
+                now = sbn.postTime.takeIf { it > 0L } ?: System.currentTimeMillis(),
                 eventId = "notification:${sbn.key}"
             )
             Log.i(TAG, "Notification pipeline result: ${outcome.reason}")
         }
     }
 
-    /** Combine every text-bearing field so bank apps that only fill bigText still parse. */
+    /** Prefer transaction content over the app-owned notification title. */
     private fun extractText(extras: Bundle?): String? {
         if (extras == null) return null
-        val parts = listOf(
-            Notification.EXTRA_TITLE,
-            Notification.EXTRA_TEXT,
-            Notification.EXTRA_BIG_TEXT,
-            Notification.EXTRA_SUB_TEXT,
-            Notification.EXTRA_SUMMARY_TEXT
-        ).mapNotNull { key ->
-            extras.getCharSequence(key)?.toString()?.takeIf { it.isNotBlank() }
-        }
-        if (parts.isEmpty()) return null
-        return parts.joinToString(" ")
+        return NotificationTextExtractor.choose(
+            title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString(),
+            text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString(),
+            bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString(),
+            subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString(),
+            summaryText = extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT)?.toString()
+        )
     }
 
     private companion object {

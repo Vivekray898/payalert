@@ -26,6 +26,8 @@ class SmsReceiver : BroadcastReceiver() {
         // confirmed pairing change takes effect on the next broadcast without any permission
         // or receiver lifecycle change.
         if (!roleState.allowsLocalDetection) return
+        val graph = AppGraph.get(appContext)
+        if (!graph.settings.state.value.detectSms) return
 
         val messages = try {
             Telephony.Sms.Intents.getMessagesFromIntent(intent)?.toList().orEmpty()
@@ -37,8 +39,10 @@ class SmsReceiver : BroadcastReceiver() {
         val pendingResult = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
-                if (!roleState.allowsLocalDetection) return@launch
-                val pipeline = AppGraph.get(appContext).pipeline
+                if (!roleState.allowsLocalDetection || !graph.settings.state.value.detectSms) {
+                    return@launch
+                }
+                val pipeline = graph.pipeline
                 messages
                     .groupBy { it.originatingAddress ?: "unknown" }
                     .forEach { (sender, parts) ->
@@ -50,6 +54,7 @@ class SmsReceiver : BroadcastReceiver() {
                                 text = body,
                                 source = SOURCE,
                                 sourceDetail = sender,
+                                now = messageTime.takeIf { it > 0L } ?: System.currentTimeMillis(),
                                 eventId = "sms:$sender:$messageTime:$body"
                             )
                         }

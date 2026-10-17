@@ -22,16 +22,12 @@ interface DedupDao {
     @Query("SELECT COUNT(*) FROM dedup_index")
     fun observeCount(): Flow<Int>
 
-    /**
-     * Tier-2 semantic key. Stored as its own row (dedup_key = semantic key) so the
-     * primary-key constraint guards it atomically, while the 10-minute prune can
-     * target semantic rows without touching exact-only rows.
-     */
+    /** Finds semantic candidates across adjacent buckets during the rolling duplicate window. */
     @Query(
-        "SELECT EXISTS(SELECT 1 FROM dedup_index " +
-            "WHERE semantic_key = :key AND (source IS NULL OR source != :source))"
+        "SELECT * FROM dedup_index " +
+            "WHERE semantic_key LIKE :prefix || '%' AND seen_at >= :cutoff"
     )
-    suspend fun containsSemanticFromOtherSource(key: String, source: String): Boolean
+    suspend fun semanticCandidates(prefix: String, cutoff: Long): List<DedupEntry>
 
     /**
      * Persist a semantic key. INSERT OR IGNORE keeps the primary key as the guard:

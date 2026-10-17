@@ -20,4 +20,9 @@
     <string name="relay_realtime_channel_description">Keeps real-time payment sync active for paired employees</string>
     <string name="relay_realtime_notification_title">Relay sync active</string>
     <string name="relay_realtime_notification_text">Listening for payments from paired owner</string>
+    <string name="relay_announcement_channel_name">Owner payment announcements</string>
+    <string name="relay_announcement_channel_description">Immediate alerts for payments forwarded by the owner device</string>
+    <string name="relay_wakeup_notification_title">New payment received</string>
+    <string name="relay_wakeup_notification_text">Preparing your payment announcement</string>
+    <string name="relay_announcement_notification_title">Payment received</string>
 </resources>

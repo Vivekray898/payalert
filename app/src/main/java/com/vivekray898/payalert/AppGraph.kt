@@ -24,6 +24,8 @@ import com.vivekray898.payalert.relay.RelayIdentity
 import com.vivekray898.payalert.relay.RelayPeerKeyCache
 import com.vivekray898.payalert.relay.RelayPumpScheduler
 import com.vivekray898.payalert.settings.AppSettings
+import com.vivekray898.payalert.services.PayAlertMessagingService
+import com.vivekray898.payalert.services.RelayAnnouncementNotifier
 import com.vivekray898.payalert.team.SupabaseTeamRepository
 import com.vivekray898.payalert.team.TeamController
 import com.vivekray898.payalert.team.TeamRepository
@@ -94,6 +96,10 @@ object AppGraph {
             teamRepository
         )
         private val relayPeerKeys = RelayPeerKeyCache(database.relayPeerKeyDao())
+        private val appContext: Context = context.applicationContext
+        private val announcementNotifier = RelayAnnouncementNotifier(appContext)
+        private val fcmRegistrationLock = Any()
+        private var fcmRegistrationKey: String? = null
 
         val relayForwarder = OwnerForwarder(
             transport = teamRepository,
@@ -108,7 +114,8 @@ object AppGraph {
             peerKeys = relayPeerKeys,
             received = database.receivedAnnouncementDao(),
             announcementTemplate = { settings.state.value.creditTemplate },
-            announce = tts::announce
+            announce = tts::announce,
+            notify = announcementNotifier::showAnnouncement
         )
 
         /**
@@ -119,11 +126,7 @@ object AppGraph {
         val isTransportConfigured: Boolean get() = teamRepository.configured
 
         /** Updates the FCM token on the server for this device. */
-        fun updateFcmToken(token: String) {
-            // This will be implemented via a new RPC in a future migration
-            // For now, log the token (in production, store it securely)
-            android.util.Log.i("PayAlertRelay", "FCM token updated: ${token.take(20)}...")
-        }
+        suspend fun updateFcmToken(token: String) = team.updateFcmToken(token)
 
         val relayEngine: RelayEngine = RelayEngine(
             transport = teamRepository,
@@ -150,12 +153,27 @@ object AppGraph {
                     devicePreferences.edit().putString(KEY_DEVICE_NAME, name).apply()
                 },
                 roleState = settings.localDeviceRoleState,
-                onPairingChanged = { snapshot, role -> relayEngine.onPairingChanged(snapshot, role) }
+                onPairingChanged = { snapshot, role ->
+                    relayEngine.onPairingChanged(snapshot, role)
+                    if (snapshot == null) {
+                        synchronized(fcmRegistrationLock) { fcmRegistrationKey = null }
+                    } else {
+                        team.account.value?.userId?.let { accountId ->
+                            val registrationKey = "$accountId:${snapshot.device.id}:$role"
+                            val shouldRefresh = synchronized(fcmRegistrationLock) {
+                                if (fcmRegistrationKey == registrationKey) {
+                                    false
+                                } else {
+                                    fcmRegistrationKey = registrationKey
+                                    true
+                                }
+                            }
+                            if (shouldRefresh) PayAlertMessagingService.refreshToken(appContext)
+                        }
+                    }
+                }
             )
         }
-
-        /** Application context, kept so the pipeline can notify home-screen widgets. */
-        private val appContext: Context = context.applicationContext
 
         val pipeline: PaymentPipeline = PaymentPipeline(
             store = RoomPaymentStore(database),
@@ -212,13 +230,16 @@ object AppGraph {
          * One background relay pass: resolve the current pairing, then deliver. Called by the
          * periodic worker so a paired device keeps working with no screen open.
          */
-        suspend fun runRelayPump() {
+        suspend fun runRelayPump(): Boolean {
+            var refreshed = true
             try {
-                teamController.refresh()
+                refreshed = teamController.refreshNow()
             } catch (_: Exception) {
                 // Offline: the previously stored pairing still lets queued work be flushed.
+                refreshed = false
             }
             relayEngine.pump()
+            return refreshed
         }
     }
 

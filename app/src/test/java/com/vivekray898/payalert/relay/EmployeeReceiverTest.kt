@@ -25,6 +25,10 @@ class EmployeeReceiverTest {
             listOf("Payment received. 750 rupees from Suresh."),
             fakes.announcements
         )
+        assertEquals(
+            listOf("msg-1" to "Payment received. 750 rupees from Suresh."),
+            fakes.notifications
+        )
         val row = fakes.received.rows.getValue("msg-1")
         assertEquals(750.0, requireNotNull(row.amount), 0.001)
         assertEquals("Suresh", row.merchant)
@@ -58,6 +62,7 @@ class EmployeeReceiverTest {
         assertEquals(0, second.imported)
         assertEquals(0, second.announced)
         assertEquals(1, fakes.announcements.size)
+        assertEquals(1, fakes.notifications.size)
         assertEquals(1, fakes.received.rows.size)
         // The lease is released on every pass, so a redelivery cannot accumulate on the server.
         assertEquals(2, fakes.transport.acks.size)
@@ -81,6 +86,7 @@ class EmployeeReceiverTest {
         assertEquals(0, result.imported)
         assertEquals(0, result.announced)
         assertTrue(fakes.announcements.isEmpty())
+        assertTrue(fakes.notifications.isEmpty())
         val row = fakes.received.rows.getValue("msg-4")
         assertTrue(row.decryptFailed)
         assertNull(row.amount)
@@ -190,6 +196,7 @@ class EmployeeReceiverTest {
         val ownerKeys = RelayCrypto.generateKeyPair(OWNER_KEY)
         val employeeKeys = RelayCrypto.generateKeyPair(EMPLOYEE_KEY)
         val announcements = mutableListOf<String>()
+        val notifications = mutableListOf<Pair<String, String>>()
 
         val receiver = EmployeeReceiver(
             transport = transport,
@@ -198,7 +205,8 @@ class EmployeeReceiverTest {
             received = received,
             announcementTemplate = { "" },
             announce = { announcements += it },
-            clock = { now }
+            clock = { now },
+            notify = { messageId, text -> notifications += messageId to text }
         )
 
         suspend fun prepare() {

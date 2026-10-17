@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS devices (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     device_name TEXT NOT NULL,
     device_token TEXT,                                    -- FCM registration token
+    fcm_updated_at TIMESTAMPTZ,
     platform TEXT NOT NULL DEFAULT 'android',
     last_seen_at TIMESTAMPTZ DEFAULT now(),
     paired_with_device_id UUID REFERENCES devices(id),    -- null if standalone

@@ -7,7 +7,7 @@
 -- The shim creates auth.users/auth.uid(), anon/authenticated, applies schema.sql,
 -- simulates Supabase's broad default grants (including column-level grants),
 -- then applies team_pairing.sql twice, encrypted_relay.sql, team_pairing.sql
--- again, and encrypted_relay.sql again. It persists only setup, not fixtures.
+-- again, encrypted_relay.sql again, and the FCM migrations. It persists only setup, not fixtures.
 -- NEVER use shim=true on a real Supabase database: it replaces auth.uid().
 --
 -- On a disposable Supabase/test database already migrated, omit shim=true:
@@ -65,6 +65,8 @@
     \ir ../encrypted_relay.sql
     \ir ../team_pairing.sql
     \ir ../encrypted_relay.sql
+    \ir ../migrations/005_fcm_token.sql
+    \ir ../migrations/006_fcm_wakeup.sql
 \endif
 
 BEGIN;
@@ -127,6 +129,11 @@ SELECT pg_temp.assert_true((SELECT count(*) = 8 AND bool_and(p.prosecdef)
     WHERE n.nspname = 'public' AND p.proname IN ('relay_register_key', 'relay_rotate_key',
         'relay_bind_peer_key', 'relay_peer_key', 'relay_enqueue', 'relay_fetch', 'relay_ack',
         'relay_cleanup_expired')), 'encrypted relay fixed-path SECURITY DEFINER RPCs');
+SELECT pg_temp.assert_true((SELECT count(*) = 1 AND bool_and(p.prosecdef)
+    AND bool_and(p.proconfig @> ARRAY['search_path=""'])
+    FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = 'team_update_fcm_token'),
+    'FCM token update is a fixed-path SECURITY DEFINER RPC');
 SELECT pg_temp.assert_true(NOT has_schema_privilege('authenticated', 'team_private', 'USAGE'),
     'private schema is not client-accessible');
 SELECT pg_temp.assert_true(NOT has_schema_privilege('authenticated', 'relay_private', 'USAGE'),
@@ -184,6 +191,9 @@ SELECT pg_temp.assert_true((SELECT email = 'team-a-new@example.test' AND display
     FROM public.users WHERE id = :'account_a'), 'users upsert refreshes metadata');
 SELECT pg_temp.assert_true((SELECT last_seen_at > now() - interval '1 minute'
     FROM public.devices WHERE id = :'owner'), 'last_seen refreshed');
+SELECT public.team_update_fcm_token(:'owner', 'token-from-owner');
+SELECT pg_temp.assert_true((SELECT device_token = 'token-from-owner' AND fcm_updated_at IS NOT NULL
+    FROM public.devices WHERE id = :'owner'), 'FCM token update is ownership checked');
 SELECT set_config('request.jwt.claim.sub', :'account_b', true);
 SELECT public.team_register_device(:'employee', 'Employee terminal');
 SELECT public.team_register_device(:'employee2', 'Second terminal');

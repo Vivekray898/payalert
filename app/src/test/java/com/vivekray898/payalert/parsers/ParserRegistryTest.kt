@@ -219,6 +219,19 @@ class ParserRegistryTest {
     }
 
     @Test
+    fun `card bonus promotion is skipped before credit parsing`() {
+        val texts = listOf(
+            "You received 300 rupees bonus from this card",
+            "Receive 300 rupees bonus from this card"
+        )
+
+        texts.forEach { text ->
+            assertEquals("promo", parser.skipCategory(text))
+            assertNull(parser.parse(text, "AD-AXISBK"))
+        }
+    }
+
+    @Test
     fun `declined transactions are skipped`() {
         val text = "Your transaction of Rs 500 was declined due to insufficient funds"
         assertNull(parser.parse(text, "AD-HDFCBK"))

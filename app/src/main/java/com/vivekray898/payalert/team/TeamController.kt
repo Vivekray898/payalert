@@ -8,6 +8,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 data class TeamState(
     val account: TeamAccount? = null,
@@ -42,6 +44,7 @@ class TeamController(
     val state = mutableState.asStateFlow()
     private var action: Job? = null
     private var generation = 0
+    private val refreshMutex = Mutex()
 
     init {
         scope.launch {
@@ -64,13 +67,33 @@ class TeamController(
         // The account observer clears the snapshot and invitation, not local payments.
     }
 
-    fun refresh() = perform {
-        val snapshot = repository.loadTeam(deviceName)
-        update {
-            copy(team = snapshot, needsRefresh = false,
-                invite = invite.takeIf { team?.employees == snapshot.employees && snapshot.owner == null })
+    fun refresh() = perform { refreshNow() }
+
+    /**
+     * Refreshes pairing synchronously for cold-start workers.
+     *
+     * The old background-only [refresh] returned before its network request ran, so an FCM process
+     * could call the relay pump while it still had no employee context. This suspendable variant
+     * completes the readback and role/relay synchronization before its caller proceeds.
+     */
+    suspend fun refreshNow(): Boolean {
+        if (!configured || repository.account.value == null) return false
+        return refreshMutex.withLock {
+            if (repository.account.value == null) return false
+            val snapshot = repository.loadTeam(deviceName)
+            update {
+                copy(
+                    account = repository.account.value,
+                    team = snapshot,
+                    needsRefresh = false,
+                    invite = invite.takeIf {
+                        team?.employees == snapshot.employees && snapshot.owner == null
+                    }
+                )
+            }
+            syncPairing(snapshot)
+            true
         }
-        syncPairing(snapshot)
     }
 
     fun renameDevice(name: String) {

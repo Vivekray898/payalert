@@ -17,7 +17,8 @@ object DedupKeyBuilder {
 
     const val DEFAULT_WINDOW_MINUTES = 5
     const val SEMANTIC_WINDOW_MINUTES = 5
-    private const val SEMANTIC_PRUNE_MILLIS = 10L * 60 * 1000
+    const val SEMANTIC_LOOKBACK_MINUTES = 10
+    const val SEMANTIC_LOOKBACK_MILLIS = SEMANTIC_LOOKBACK_MINUTES * 60_000L
 
     /** Tier-1 exact-source key (notification package + timestamp + raw-text hash). */
     fun exactKey(
@@ -44,20 +45,22 @@ object DedupKeyBuilder {
         account: String?,
         receivedAt: Long
     ): String {
-        // Amount: exact match after setScale(2, HALF_UP)
+        return semanticKeyPrefix(kind, amount, currency, merchant, account) +
+            (receivedAt / 300_000L)
+    }
+
+    /** Stable part used by the rolling semantic lookup; the final segment is an old bucket key. */
+    fun semanticKeyPrefix(
+        kind: String,
+        amount: Double,
+        currency: String,
+        merchant: String?,
+        account: String?
+    ): String {
         val amountText = BigDecimal.valueOf(amount).setScale(2, RoundingMode.HALF_UP).toPlainString()
-
-        // Merchant normalization: lowercase -> strip @... VPA suffix -> remove stop-words -> collapse whitespace
         val normalizedMerchant = normalizeMerchant(merchant)
-
-        // Account rule: if either side is null, ignore this field (use "-").
-        // Only when both are non-null must they match.
         val accountPart = account?.takeIf { it.isNotBlank() } ?: "-"
-
-        // Time bucket: floor(receivedAt / 300_000) — 5-minute window
-        val bucket = receivedAt / 300_000L
-
-        return "txn:$kind:$amountText:$currency:$accountPart:$normalizedMerchant:$bucket"
+        return "txn:$kind:$amountText:$currency:$accountPart:$normalizedMerchant:"
     }
 
     /**
@@ -72,10 +75,19 @@ object DedupKeyBuilder {
         merchant: String?,
         receivedAt: Long
     ): String {
+        return merchantBridgeKeyPrefix(kind, amount, currency, merchant) +
+            (receivedAt / 300_000L)
+    }
+
+    fun merchantBridgeKeyPrefix(
+        kind: String,
+        amount: Double,
+        currency: String,
+        merchant: String?
+    ): String {
         val amountText = BigDecimal.valueOf(amount).setScale(2, RoundingMode.HALF_UP).toPlainString()
         val merchantPrefix = normalizeMerchant(merchant).take(MERCHANT_BRIDGE_LENGTH)
-        val bucket = receivedAt / 300_000L
-        return "txn-bridge:$kind:$amountText:$currency:$merchantPrefix:$bucket"
+        return "txn-bridge:$kind:$amountText:$currency:$merchantPrefix:"
     }
 
     /** Normalize merchant for semantic key. */

@@ -132,6 +132,25 @@ class SupabaseTeamRepositoryTest {
         }
     }
 
+    @Test fun `FCM token update uses the authenticated device RPC`() = runTest {
+        val store = MemoryStore(TeamAuthState(session))
+        val network = RecordingTransport { TeamHttpResponse(200, "{}") }
+        val repository = SupabaseTeamRepository(config, store, network, StandardTestDispatcher(testScheduler)) { now }
+
+        repository.updateFcmToken("  token-for-employee  ")
+
+        val request = network.requests.single()
+        assertEquals("team_update_fcm_token", request.url.substringAfterLast('/'))
+        assertEquals(
+            mapOf(
+                "p_device_id" to store.installations.values.single(),
+                "p_device_token" to "token-for-employee"
+            ),
+            parameters(request)
+        )
+        assertEquals("Bearer access.old", request.headers["Authorization"])
+    }
+
     @Test fun `join detects HTTP 200 error invalid input and never retries mutation`() = runTest {
         val network = RecordingTransport { TeamHttpResponse(200, """{"error":"secret SQL details"}""") }
         val store = MemoryStore(TeamAuthState(session))

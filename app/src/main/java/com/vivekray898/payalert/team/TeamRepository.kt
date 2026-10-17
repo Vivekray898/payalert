@@ -37,6 +37,9 @@ interface TeamRepository {
     suspend fun cancelInvite()
     suspend fun joinTeam(code: String)
     suspend fun removeConnection(pairingId: String)
+
+    /** Stores the current FCM registration token for push wake-ups. */
+    suspend fun updateFcmToken(token: String) = Unit
 }
 
 object PairingCode {

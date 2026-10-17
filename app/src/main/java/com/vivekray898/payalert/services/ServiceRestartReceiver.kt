@@ -4,6 +4,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.vivekray898.payalert.AppGraph
+import com.vivekray898.payalert.relay.EmployeeRealtimeService
+import com.vivekray898.payalert.role.LocalDeviceRole
 
 /**
  * Makes sure the foreground monitor is live again after a device unlock — the point
@@ -16,6 +18,9 @@ class ServiceRestartReceiver : BroadcastReceiver() {
         val graph = AppGraph.get(context)
         if (graph.settings.state.value.monitoringEnabled) {
             PaymentMonitorService.start(context)
+        }
+        if (graph.settings.localDeviceRoleState.currentRole == LocalDeviceRole.EMPLOYEE) {
+            EmployeeRealtimeService.start(context)
         }
     }
 }

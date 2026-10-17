@@ -88,7 +88,9 @@ Pairing also drives the local role, and the role decides what a phone listens to
 - **Owner device** behaves as before: it detects its own SMS and notification payments, announces
   and stores them locally, and additionally forwards *money received* to each paired employee.
 - **Employee device** stops handling its own SMS and notifications entirely (the receivers and the
-  pipeline drop them before parsing) and announces only what the owner forwards.
+  pipeline drop them before parsing) and announces only what the owner forwards. A high-priority
+  FCM wake-up posts a temporary notification immediately, so the screen does not need to be turned
+  on to start the remote announcement.
 
 What crosses the network is an opaque envelope. Each device generates an X25519 identity key on the
 device; the private half is wrapped by a non-exportable Android Keystore AES key and is never

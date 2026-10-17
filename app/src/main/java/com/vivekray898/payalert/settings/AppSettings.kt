@@ -8,6 +8,7 @@ import com.vivekray898.payalert.role.PersistedLocalDeviceRoleState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.Locale
 
 /** How a payment is signalled aloud. */
 enum class SoundMode {
@@ -54,6 +55,8 @@ data class SettingsSnapshot(
     val volume: Float = 1.0f,
     val minimumAmount: Double = 0.0,
     val dedupWindowMinutes: Int = 5,
+    /** Null keeps the existing behavior: every supported payment notification app is allowed. */
+    val notificationPackageAllowlist: Set<String>? = null,
     /** Shared fallback template; blank means the built-in wording for the direction. */
     val announcementTemplate: String = "",
     val creditTemplate: String = "",
@@ -66,6 +69,9 @@ data class SettingsSnapshot(
         val specific = if (kind == "credit") creditTemplate else debitTemplate
         return specific.ifBlank { announcementTemplate }
     }
+
+    fun allowsNotificationPackage(packageName: String?): Boolean =
+        NotificationSourcePolicy.allowsNotificationPackage(packageName, notificationPackageAllowlist)
 }
 
 class AppSettings(context: Context) {
@@ -104,6 +110,10 @@ class AppSettings(context: Context) {
         volume = prefs.getFloat(KEY_VOLUME, 1.0f),
         minimumAmount = prefs.getFloat(KEY_MIN_AMOUNT, 0.0f).toDouble(),
         dedupWindowMinutes = prefs.getInt(KEY_DEDUP_WINDOW, 5),
+        notificationPackageAllowlist = prefs.getStringSet(KEY_NOTIFICATION_ALLOWLIST, null)
+            ?.map { it.trim().lowercase(Locale.US) }
+            ?.toSet()
+            ?: if (prefs.contains(KEY_NOTIFICATION_ALLOWLIST)) emptySet() else null,
         announcementTemplate = prefs.getString(KEY_TEMPLATE, "") ?: "",
         creditTemplate = prefs.getString(KEY_TEMPLATE_CREDIT, "") ?: "",
         debitTemplate = prefs.getString(KEY_TEMPLATE_DEBIT, "") ?: "",
@@ -128,6 +138,16 @@ class AppSettings(context: Context) {
     fun setVolume(value: Float) = edit { putFloat(KEY_VOLUME, value) }
     fun setMinimumAmount(value: Double) = edit { putFloat(KEY_MIN_AMOUNT, value.toFloat()) }
     fun setDedupWindowMinutes(value: Int) = edit { putInt(KEY_DEDUP_WINDOW, value) }
+    fun setNotificationPackageAllowlist(packages: Set<String>?) = edit {
+        if (packages == null) {
+            remove(KEY_NOTIFICATION_ALLOWLIST)
+        } else {
+            putStringSet(
+                KEY_NOTIFICATION_ALLOWLIST,
+                packages.map { it.trim().lowercase(Locale.US) }.filter { it.isNotBlank() }.toSet()
+            )
+        }
+    }
     fun setAnnouncementTemplate(value: String) = edit { putString(KEY_TEMPLATE, value) }
     fun setCreditTemplate(value: String) = edit { putString(KEY_TEMPLATE_CREDIT, value) }
     fun setDebitTemplate(value: String) = edit { putString(KEY_TEMPLATE_DEBIT, value) }
@@ -147,6 +167,7 @@ class AppSettings(context: Context) {
         putFloat(KEY_VOLUME, 1.0f)
         putFloat(KEY_MIN_AMOUNT, 0.0f)
         putInt(KEY_DEDUP_WINDOW, 5)
+        remove(KEY_NOTIFICATION_ALLOWLIST)
         putString(KEY_TEMPLATE, "")
         putString(KEY_TEMPLATE_CREDIT, "")
         putString(KEY_TEMPLATE_DEBIT, "")
@@ -167,6 +188,7 @@ class AppSettings(context: Context) {
         private const val KEY_VOLUME = "volume"
         private const val KEY_MIN_AMOUNT = "minimum_amount"
         private const val KEY_DEDUP_WINDOW = "dedup_window_minutes"
+        private const val KEY_NOTIFICATION_ALLOWLIST = "notification_package_allowlist"
         private const val KEY_TEMPLATE = "announcement_template"
         private const val KEY_TEMPLATE_CREDIT = "announcement_template_credit"
         private const val KEY_TEMPLATE_DEBIT = "announcement_template_debit"

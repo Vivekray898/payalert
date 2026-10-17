@@ -30,7 +30,7 @@
   "skip": {
     "otp": ["otp", "one time password", "one-time password", "verification code", "do not share", "never share", "valid for next"],
     "dueReminder": ["is due", "due on", "due date", "emi of", "emi is", "minimum amount due", "payment due", "will be debited", "will be deducted", "is scheduled", "overdue", "kindly pay", "please pay"],
-    "promo": ["offer", "discount", "pre-approved", "pre approved", "apply now", "avail", "congratulations", "you have won", "click the link", "click here", "limited period", "t&c apply", "get up to"],
+    "promo": ["offer", "discount", "bonus", "pre-approved", "pre approved", "apply now", "avail", "congratulations", "you have won", "click the link", "click here", "limited period", "t&c apply", "get up to"],
     "delivery": ["out for delivery", "is delivered", "has been delivered", "shipped", "dispatched", "will be delivered"],
     "request": ["has requested", "collect request", "has requested money", "payment request", "requesting you to pay"],
     "declined": ["declined", "payment failed", "has failed", "unsuccessful", "insufficient", "cannot be processed", "not processed", "transaction failed"]
@@ -44,6 +44,7 @@
     "credit": [
       "(?i)\\bfrom\\s+(.{2,40}?)\\s*(?:\\.|,|;|\\bon\\b|\\bat\\b|\\bref\\b|\\butr\\b|\\bupi\\b|\\bbal\\b|\\bamount\\b|$)",
       "(?i)^(.{2,40}?)\\s+paid\\s+you\\b",
+      "(?i)^(.{2,40}?)\\s+sent\\s+you\\b",
       "(?i)\\bby\\s+(.{2,40}?)\\s*(?:\\.|,|;|\\bon\\b|\\bat\\b|\\bref\\b|$)",
       "(?i)\\bat\\s+(.{2,40}?)\\s*(?:\\.|,|;|\\bon\\b|\\bref\\b|$)"
     ],
@@ -115,7 +116,8 @@
     { "id": "gpay", "name": "Google Pay", "packages": ["com.google.android.apps.nbu.paisa.user"], "keywords": ["google pay", "gpay"] },
     { "id": "paytm", "name": "Paytm", "packages": ["net.one97.paytm"], "keywords": ["paytm"] },
     { "id": "amazonpay", "name": "Amazon Pay", "packages": ["in.amazon.mShop.android.shopping"], "keywords": ["amazon pay"] },
-    { "id": "bhim", "name": "BHIM", "packages": ["in.org.npci.upiapp", "com.npci.bhim"], "keywords": ["bhim"] }
+    { "id": "bhim", "name": "BHIM", "packages": ["in.org.npci.upiapp", "com.npci.bhim"], "keywords": ["bhim"] },
+    { "id": "fampay", "name": "FamPay", "packages": ["com.fampay.in"], "keywords": ["fampay", "fam"] }
   ],
   "notificationPackages": [
     "com.google.android.apps.nbu.paisa.user",

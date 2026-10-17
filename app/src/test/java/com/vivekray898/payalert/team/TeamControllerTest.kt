@@ -59,6 +59,17 @@ class TeamControllerTest {
         assertFalse(controller.state.value.busy)
     }
 
+    @Test fun `cold background refresh completes pairing before the caller pumps`() = runTest {
+        val repo = FakeRepository().apply {
+            snapshot = snapshot.copy(owner = TeamConnection("pair", "owner-device", "Owner phone"))
+        }
+        val controller = TeamController(repo, backgroundScope, "Employee phone")
+
+        assertTrue(controller.refreshNow())
+        assertEquals("Employee phone", repo.loads.last())
+        assertEquals("owner-device", controller.state.value.team?.owner?.deviceId)
+    }
+
     @Test fun `unconfigured build performs no network action`() = runTest {
         val repo = FakeRepository(configured = false)
         repo.account.value = null

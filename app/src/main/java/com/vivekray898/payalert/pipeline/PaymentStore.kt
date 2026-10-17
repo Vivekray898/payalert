@@ -5,13 +5,20 @@ import com.vivekray898.payalert.data.PayAlertDatabase
 import com.vivekray898.payalert.data.PaymentEvent
 
 /**
- * The seven storage operations the payment pipeline performs. Declared as an interface
+ * The eight storage operations the payment pipeline performs. Declared as an interface
  * so the dedup critical section (check-and-insert) can be unit-tested on the JVM
  * without a Room database, which needs an Android runtime.
  */
 interface PaymentStore {
+    data class SemanticCandidate(
+        val dedupKey: String,
+        val semanticKey: String?,
+        val seenAt: Long,
+        val source: String?
+    )
+
     suspend fun containsExact(key: String): Boolean
-    suspend fun containsSemanticFromOtherSource(key: String, source: String): Boolean
+    suspend fun semanticCandidates(prefix: String, cutoff: Long): List<SemanticCandidate>
     suspend fun insertDedup(exactKey: String, semanticKey: String?, seenAt: Long, source: String)
     suspend fun insertSemantic(key: String, seenAt: Long, source: String)
     suspend fun insertEvent(event: PaymentEvent)
@@ -26,8 +33,12 @@ class RoomPaymentStore(private val database: PayAlertDatabase) : PaymentStore {
 
     override suspend fun containsExact(key: String): Boolean = dedup.contains(key)
 
-    override suspend fun containsSemanticFromOtherSource(key: String, source: String): Boolean =
-        dedup.containsSemanticFromOtherSource(key, source)
+    override suspend fun semanticCandidates(
+        prefix: String,
+        cutoff: Long
+    ): List<PaymentStore.SemanticCandidate> = dedup.semanticCandidates(prefix, cutoff).map {
+        PaymentStore.SemanticCandidate(it.dedupKey, it.semanticKey, it.seenAt, it.source)
+    }
 
     override suspend fun insertDedup(exactKey: String, semanticKey: String?, seenAt: Long, source: String) {
         dedup.insert(DedupEntry(exactKey, seenAt, semanticKey, source))

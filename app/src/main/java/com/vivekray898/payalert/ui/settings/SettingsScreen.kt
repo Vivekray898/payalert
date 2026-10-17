@@ -44,7 +44,9 @@ import com.vivekray898.payalert.AppGraph
 import com.vivekray898.payalert.services.PaymentMonitorService
 import com.vivekray898.payalert.settings.AnnouncementFormatter
 import com.vivekray898.payalert.settings.AppSettings
+import com.vivekray898.payalert.settings.NotificationSourcePolicy
 import com.vivekray898.payalert.settings.SoundMode
+import com.vivekray898.payalert.parsers.ParserConfig
 import com.vivekray898.payalert.R
 import com.vivekray898.payalert.relay.RelayStatus
 import com.vivekray898.payalert.role.DeviceRoleSnapshot
@@ -104,6 +106,7 @@ fun SettingsScreen(
     var showLanguageDialog by remember { mutableStateOf(false) }
     var creditTemplate by remember(settings.creditTemplate) { mutableStateOf(settings.creditTemplate) }
     var debitTemplate by remember(settings.debitTemplate) { mutableStateOf(settings.debitTemplate) }
+    val notificationApps = remember { notificationAppOptions(context, graph.parserConfig) }
     // Seeded once from the stored value. Re-reading it on every settings change would
     // rewrite the field mid-keystroke (typing "1500" would become "1.0500"), so the raw
     // text is kept locally and only the parsed value is pushed to settings.
@@ -188,6 +191,56 @@ fun SettingsScreen(
                 checked = settings.detectNotifications,
                 onCheckedChange = graph.settings::setDetectNotifications
             )
+            Text(
+                text = "Payment apps",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+            Text(
+                text = "Choose which installed UPI/payment apps may trigger detection. SMS is " +
+                    "controlled separately above.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (notificationApps.isEmpty()) {
+                Text(
+                    text = "No supported payment apps are installed on this device.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = StatusWarnColor
+                )
+            } else {
+                notificationApps.forEach { app ->
+                    SwitchRow(
+                        label = app.label,
+                        description = app.packageName,
+                        checked = settings.allowsNotificationPackage(app.packageName),
+                        onCheckedChange = { enabled ->
+                            val current = settings.notificationPackageAllowlist
+                                ?.toMutableSet()
+                                ?: notificationApps.map { it.packageName }.toMutableSet()
+                            if (enabled) current += app.packageName else current -= app.packageName
+                            graph.settings.setNotificationPackageAllowlist(current)
+                        }
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(
+                        onClick = { graph.settings.setNotificationPackageAllowlist(null) }
+                    ) { Text("Listen to all apps") }
+                }
+                if (settings.notificationPackageAllowlist?.isEmpty() == true) {
+                    Text(
+                        text = "All payment-app notifications are disabled. SMS can still be read " +
+                            "if Read SMS alerts is on.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = StatusWarnColor
+                    )
+                }
+            }
             // A numeric field must never rely on a placeholder to say what it is: the
             // placeholder disappears the moment a digit is typed. The label sits above the
             // field and the hint below it, so both stay on screen while the value is shown.
@@ -484,6 +537,45 @@ private fun amountFieldText(value: Double): String = when {
 
 private fun languageLabel(tag: String): String =
     AppSettings.SUPPORTED_LANGUAGES.firstOrNull { it.first == tag }?.second ?: tag
+
+private data class NotificationAppOption(
+    val packageName: String,
+    val label: String
+)
+
+private fun notificationAppOptions(
+    context: android.content.Context,
+    config: ParserConfig
+): List<NotificationAppOption> {
+    val configuredNames = config.wallets
+        .flatMap { wallet -> wallet.packages.map { it to wallet.name } }
+        .toMap()
+    val fallbackNames = mapOf(
+        "com.paytm.business" to "Paytm Business",
+        "com.bharatpe.app" to "BharatPe",
+        "com.razorpay.pos" to "Razorpay POS",
+        "com.naviapp" to "Navi",
+        "com.sbi.upi" to "BHIM SBI Pay",
+        "com.sbi.lotza02" to "YONO SBI",
+        "com.myairtelapp" to "Airtel Thanks",
+        "com.kotak811mobilebankingapp.instantsavingsupiscanandpayrecharge" to "Kotak 811"
+    )
+    val packageManager = context.packageManager
+    return NotificationSourcePolicy.supportedPaymentPackages(config)
+        .mapNotNull { packageName ->
+            val info = runCatching {
+                packageManager.getApplicationInfo(packageName, 0)
+            }.getOrNull() ?: return@mapNotNull null
+            val installedLabel = packageManager.getApplicationLabel(info).toString()
+                .takeIf { it.isNotBlank() }
+            NotificationAppOption(
+                packageName = packageName,
+                label = installedLabel ?: configuredNames[packageName] ?:
+                    fallbackNames[packageName] ?: packageName
+            )
+        }
+        .sortedBy { it.label.lowercase() }
+}
 
 private fun appVersion(context: android.content.Context): String = try {
     context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
