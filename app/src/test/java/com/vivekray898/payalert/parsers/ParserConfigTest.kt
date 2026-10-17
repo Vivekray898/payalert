@@ -40,6 +40,13 @@ class ParserConfigTest {
     }
 
     @Test
+    fun `notification package admission includes observed UPI and SMS mirror packages`() {
+        assertTrue("missing Google Pay package", "com.google.android.apps.nbu.paisa.user" in config.notificationPackages)
+        assertTrue("missing Kotak notification package", "com.kotak811mobilebankingapp.instantsavingsupiscanandpayrecharge" in config.notificationPackages)
+        assertTrue("missing Messaging mirror package", "com.android.messaging" in config.notificationPackages)
+    }
+
+    @Test
     fun `every configured pattern compiles as a regex`() {
         val patterns = config.patterns.amount + config.patterns.reference +
             config.patterns.account + config.patterns.balance +

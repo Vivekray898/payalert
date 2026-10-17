@@ -22,5 +22,9 @@ data class DedupEntry(
      * entries (same-app re-posts, repeated SMS), which keeps the partial index small.
      */
     @ColumnInfo(name = "semantic_key")
-    val semanticKey: String? = null
+    val semanticKey: String? = null,
+
+    /** Detector that first observed this key; semantic matches only bridge different detectors. */
+    @ColumnInfo(name = "source")
+    val source: String? = null
 )

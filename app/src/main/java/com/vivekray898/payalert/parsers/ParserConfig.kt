@@ -18,7 +18,9 @@ data class ParserConfig(
     val merchant: MerchantConfig,
     val currency: Map<String, List<String>>,
     val banks: List<BankRule>,
-    val wallets: List<WalletRule>
+    val wallets: List<WalletRule>,
+    /** Notification packages known to publish payment or SMS-mirror alerts. */
+    val notificationPackages: List<String> = emptyList()
 ) {
     val catchAllBank: BankRule? get() = banks.firstOrNull { it.catchAll }
 }

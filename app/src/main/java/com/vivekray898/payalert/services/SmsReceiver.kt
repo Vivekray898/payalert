@@ -45,7 +45,13 @@ class SmsReceiver : BroadcastReceiver() {
                         if (!roleState.allowsLocalDetection) return@forEach
                         val body = parts.joinToString(separator = "") { it.messageBody.orEmpty() }
                         if (body.isNotBlank()) {
-                            pipeline.handle(body, SOURCE, sender)
+                            val messageTime = parts.minOfOrNull { it.timestampMillis } ?: 0L
+                            pipeline.handle(
+                                text = body,
+                                source = SOURCE,
+                                sourceDetail = sender,
+                                eventId = "sms:$sender:$messageTime:$body"
+                            )
                         }
                     }
             } finally {

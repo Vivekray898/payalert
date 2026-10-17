@@ -52,11 +52,21 @@ class PaymentNotificationListener : NotificationListenerService() {
             Log.d(TAG, "Notification from ${sbn.packageName} carried no readable text")
             return
         }
+        val graph = AppGraph.get(applicationContext)
+        if (!graph.parser.isLikelyNotificationSource(sbn.packageName, text)) {
+            Log.d(TAG, "Ignoring notification from unsupported source ${sbn.packageName}")
+            return
+        }
         val sourceDetail = sbn.packageName
         Log.d(TAG, "Notification from $sourceDetail: $text")
         scope.launch {
             if (!roleState.allowsLocalDetection) return@launch
-            val outcome = AppGraph.get(applicationContext).pipeline.handle(text, SOURCE, sourceDetail)
+            val outcome = graph.pipeline.handle(
+                text = text,
+                source = SOURCE,
+                sourceDetail = sourceDetail,
+                eventId = "notification:${sbn.key}"
+            )
             Log.i(TAG, "Notification pipeline result: ${outcome.reason}")
         }
     }

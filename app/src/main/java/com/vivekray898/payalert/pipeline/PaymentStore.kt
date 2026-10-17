@@ -11,9 +11,9 @@ import com.vivekray898.payalert.data.PaymentEvent
  */
 interface PaymentStore {
     suspend fun containsExact(key: String): Boolean
-    suspend fun containsSemantic(key: String): Boolean
-    suspend fun insertDedup(exactKey: String, semanticKey: String?, seenAt: Long)
-    suspend fun insertSemantic(key: String, seenAt: Long)
+    suspend fun containsSemanticFromOtherSource(key: String, source: String): Boolean
+    suspend fun insertDedup(exactKey: String, semanticKey: String?, seenAt: Long, source: String)
+    suspend fun insertSemantic(key: String, seenAt: Long, source: String)
     suspend fun insertEvent(event: PaymentEvent)
     suspend fun pruneExactBefore(cutoff: Long)
     suspend fun pruneSemanticBefore(cutoff: Long)
@@ -26,14 +26,15 @@ class RoomPaymentStore(private val database: PayAlertDatabase) : PaymentStore {
 
     override suspend fun containsExact(key: String): Boolean = dedup.contains(key)
 
-    override suspend fun containsSemantic(key: String): Boolean = dedup.containsSemantic(key)
+    override suspend fun containsSemanticFromOtherSource(key: String, source: String): Boolean =
+        dedup.containsSemanticFromOtherSource(key, source)
 
-    override suspend fun insertDedup(exactKey: String, semanticKey: String?, seenAt: Long) {
-        dedup.insert(DedupEntry(exactKey, seenAt, semanticKey))
+    override suspend fun insertDedup(exactKey: String, semanticKey: String?, seenAt: Long, source: String) {
+        dedup.insert(DedupEntry(exactKey, seenAt, semanticKey, source))
     }
 
-    override suspend fun insertSemantic(key: String, seenAt: Long) {
-        dedup.insertSemantic(key, seenAt)
+    override suspend fun insertSemantic(key: String, seenAt: Long, source: String) {
+        dedup.insertSemantic(key, seenAt, source)
     }
 
     override suspend fun insertEvent(event: PaymentEvent) {

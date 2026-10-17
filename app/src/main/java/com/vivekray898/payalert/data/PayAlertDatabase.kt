@@ -26,7 +26,7 @@ import com.vivekray898.payalert.relay.RelayPeerKeyDao
         RelayPeerKey::class,
         ProcessedRelayMessage::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class PayAlertDatabase : RoomDatabase() {
@@ -57,7 +57,8 @@ abstract class PayAlertDatabase : RoomDatabase() {
                         SEMANTIC_DEDUP_MIGRATION,
                         RELAY_PERSISTENCE_MIGRATION,
                         RELAY_DISPLAY_MIGRATION,
-                        RELAY_PROCESSED_MIGRATION
+                        RELAY_PROCESSED_MIGRATION,
+                        SOURCE_AWARE_DEDUP_MIGRATION
                     )
                     .build()
                     .also { instance = it }
@@ -211,6 +212,13 @@ abstract class PayAlertDatabase : RoomDatabase() {
                     "CREATE INDEX IF NOT EXISTS idx_processed_relay_processed_at " +
                         "ON processed_relay_messages(processed_at)"
                 )
+            }
+        }
+
+        /** Records which detector first observed each semantic key. */
+        val SOURCE_AWARE_DEDUP_MIGRATION = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE dedup_index ADD COLUMN source TEXT")
             }
         }
     }

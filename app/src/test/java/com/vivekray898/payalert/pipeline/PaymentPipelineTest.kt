@@ -205,6 +205,39 @@ class PaymentPipelineTest {
         assertEquals(0, store.eventCount())
     }
 
+    @Test
+    fun `same source events with distinct notification identities are not semantic duplicates`() = runBlocking {
+        val store = FakePaymentStore()
+        val pipeline = pipeline(store)
+
+        val first = pipeline.handle(
+            "You received Rs 500 from Rahul",
+            "notification",
+            "com.phonepe.app",
+            baseNow,
+            eventId = "notification-1"
+        )
+        val second = pipeline.handle(
+            "You received Rs 500 from Rahul",
+            "notification",
+            "com.phonepe.app",
+            baseNow + 500,
+            eventId = "notification-2"
+        )
+        val repeat = pipeline.handle(
+            "You received Rs 500 from Rahul",
+            "notification",
+            "com.phonepe.app",
+            baseNow + 700,
+            eventId = "notification-2"
+        )
+
+        assertEquals(ParseOutcome.ACCEPTED, first.reason)
+        assertEquals(ParseOutcome.ACCEPTED, second.reason)
+        assertEquals(ParseOutcome.DUPLICATE, repeat.reason)
+        assertEquals(2, store.eventCount())
+    }
+
     // ------------------------------------------------------------------
     // Test B — concurrent mutex proof (the test that fails if the Mutex is removed)
     // ------------------------------------------------------------------
@@ -346,7 +379,12 @@ class PaymentPipelineTest {
         private val insertDelayMs: Long = 0
     ) : PaymentStore {
 
-        data class Row(val dedupKey: String, val seenAt: Long, val semanticKey: String?)
+        data class Row(
+            val dedupKey: String,
+            val seenAt: Long,
+            val semanticKey: String?,
+            val source: String?
+        )
 
         private val rowsBy = java.util.concurrent.ConcurrentHashMap<String, Row>()
         private val events = CopyOnWriteArrayList<PaymentEvent>()
@@ -364,8 +402,8 @@ class PaymentPipelineTest {
 
         fun rows(): List<Row> = rowsBy.values.toList()
         fun eventCount(): Int = events.size
-        fun seedRow(dedupKey: String, seenAt: Long, semanticKey: String?) {
-            rowsBy[dedupKey] = Row(dedupKey, seenAt, semanticKey)
+        fun seedRow(dedupKey: String, seenAt: Long, semanticKey: String?, source: String? = null) {
+            rowsBy[dedupKey] = Row(dedupKey, seenAt, semanticKey, source)
         }
 
         override suspend fun containsExact(key: String): Boolean {
@@ -376,25 +414,32 @@ class PaymentPipelineTest {
             return hit
         }
 
-        override suspend fun containsSemantic(key: String): Boolean {
+        override suspend fun containsSemanticFromOtherSource(key: String, source: String): Boolean {
             stamp("check-semantic begin")
             if (checkDelayMs > 0) delay(checkDelayMs)
-            val hit = rowsBy.values.any { it.semanticKey == key }
+            val hit = rowsBy.values.any {
+                it.semanticKey == key && (it.source == null || it.source != source)
+            }
             stamp("check-semantic end hit=$hit")
             return hit
         }
 
-        override suspend fun insertDedup(exactKey: String, semanticKey: String?, seenAt: Long) {
+        override suspend fun insertDedup(
+            exactKey: String,
+            semanticKey: String?,
+            seenAt: Long,
+            source: String
+        ) {
             // The slow write: models Room's disk I/O, the gap a check-and-insert race
             // needs in order to double-store.
             if (insertDelayMs > 0) delay(insertDelayMs)
-            rowsBy.putIfAbsent(exactKey, Row(exactKey, seenAt, semanticKey))
+            rowsBy.putIfAbsent(exactKey, Row(exactKey, seenAt, semanticKey, source))
             stamp("insert $exactKey")
         }
 
-        override suspend fun insertSemantic(key: String, seenAt: Long) {
+        override suspend fun insertSemantic(key: String, seenAt: Long, source: String) {
             if (insertDelayMs > 0) delay(insertDelayMs)
-            rowsBy.putIfAbsent(key, Row(key, seenAt, key))
+            rowsBy.putIfAbsent(key, Row(key, seenAt, key, source))
         }
 
         override suspend fun insertEvent(event: PaymentEvent) {

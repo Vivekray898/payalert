@@ -127,6 +127,30 @@ class ParserRegistryTest {
     }
 
     @Test
+    fun `recipient sent you notification is a credit`() {
+        val parsed = parser.parse("Rahul sent you Rs 500", "com.phonepe.app")!!
+
+        assertEquals("credit", parsed.kind)
+        assertEquals(500.00, parsed.amount, 0.001)
+    }
+
+    @Test
+    fun `sender sent to another person remains a debit`() {
+        val parsed = parser.parse("You sent Rs 500 to Rahul", "com.phonepe.app")!!
+
+        assertEquals("debit", parsed.kind)
+        assertEquals(500.00, parsed.amount, 0.001)
+    }
+
+    @Test
+    fun `unicode digits are normalized before amount extraction`() {
+        val parsed = parser.parse("You received ₹५०० from Rahul", "com.phonepe.app")!!
+
+        assertEquals("credit", parsed.kind)
+        assertEquals(500.00, parsed.amount, 0.001)
+    }
+
+    @Test
     fun `bank app credit merchant stops before amount clause`() {
         val parsed = parser.parse(
             "₹50.00 received from Mr SUNIL CHANDRA BARMAN Amount credited to XX8521. Check out details.",
@@ -225,6 +249,22 @@ class ParserRegistryTest {
     @Test
     fun `generic transaction label does not create a debit`() {
         assertNull(parser.parse("Txn status: Rs 50.00, tap to view", "com.google.android.apps.nbu.paisa.user"))
+    }
+
+    @Test
+    fun `unknown notification without a configured source is rejected`() {
+        assertTrue(
+            !parser.isLikelyNotificationSource(
+                "com.example.battery",
+                "Payment status Rs 50.00"
+            )
+        )
+        assertTrue(
+            parser.isLikelyNotificationSource(
+                "com.example.bank",
+                "Kotak Bank received Rs 50.00"
+            )
+        )
     }
 
     @Test

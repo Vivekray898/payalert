@@ -87,7 +87,8 @@ object ParserConfigLoader {
                     packages = wallet.strings("packages"),
                     keywords = wallet.strings("keywords")
                 )
-            }
+            },
+            notificationPackages = root.strings("notificationPackages")
         )
     }
 

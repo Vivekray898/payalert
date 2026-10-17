@@ -10,7 +10,9 @@
     "amount": [
       "(?i)(?:rs\\.?|inr|\\u20b9)\\s*([0-9][0-9,]*(?:\\.[0-9]{1,2})?)",
       "(?i)(?:amount|amt)\\.?\\s*(?:of|:)?\\s*(?:rs\\.?|inr|\\u20b9)?\\s*([0-9][0-9,]*(?:\\.[0-9]{1,2})?)",
-      "(?i)([0-9][0-9,]*\\.[0-9]{2})\\s*(?:rs\\b|inr\\b)"
+      "(?i)([0-9][0-9,]*\\.[0-9]{2})\\s*(?:rs\\b|inr\\b)",
+      "(?i)\\b(?:received|credited|got)\\s*(?:rs\\.?|inr|\\u20b9)?\\s*([0-9][0-9,]*(?:\\.[0-9]{1,2})?)",
+      "(?i)([0-9][0-9,]*(?:\\.[0-9]{1,2})?)\\s+rupees?\\b"
     ],
     "reference": [
       "(?i)(?:utr|rrn|upi\\s*ref|ref(?:erence)?\\s*(?:no\\.?|number|id)?|txn\\s*id|transaction\\s*id)\\s*[:#]?\\s*([A-Za-z0-9]{6,22})",
@@ -35,7 +37,7 @@
   },
   "direction": {
     "debit": ["debited", "debit", "withdrawn", "withdrawal", "spent", "paid", "sent", "deducted", "purchase", "transferred", "charged"],
-    "credit": ["credited", "credit", "received", "deposited", "refund", "cashback", "reversed", "added", "money received", "paid you"],
+    "credit": ["credited", "credit", "received", "deposited", "refund", "cashback", "reversed", "added", "money received", "paid you", "sent you", "sent to you", "transferred to you"],
     "debitWins": ["debited", "debit", "spent", "withdrawn", "deducted"]
   },
   "merchant": {
@@ -114,5 +116,24 @@
     { "id": "paytm", "name": "Paytm", "packages": ["net.one97.paytm"], "keywords": ["paytm"] },
     { "id": "amazonpay", "name": "Amazon Pay", "packages": ["in.amazon.mShop.android.shopping"], "keywords": ["amazon pay"] },
     { "id": "bhim", "name": "BHIM", "packages": ["in.org.npci.upiapp", "com.npci.bhim"], "keywords": ["bhim"] }
+  ],
+  "notificationPackages": [
+    "com.google.android.apps.nbu.paisa.user",
+    "com.phonepe.app",
+    "net.one97.paytm",
+    "com.paytm.business",
+    "com.bharatpe.app",
+    "com.razorpay.pos",
+    "com.naviapp",
+    "com.sbi.upi",
+    "com.sbi.lotza02",
+    "com.myairtelapp",
+    "in.amazon.mShop.android.shopping",
+    "com.kotak811mobilebankingapp.instantsavingsupiscanandpayrecharge",
+    "com.android.messaging",
+    "com.google.android.apps.messaging",
+    "com.samsung.android.messaging",
+    "com.microsoft.android.smsorganizer",
+    "com.truecaller"
   ]
 }

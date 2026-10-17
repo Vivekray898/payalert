@@ -235,6 +235,7 @@ object AppGraph {
         merchant = MerchantConfig(emptyList(), emptyList(), emptyList(), "", "", emptyList()),
         currency = emptyMap(),
         banks = emptyList(),
-        wallets = emptyList()
+        wallets = emptyList(),
+        notificationPackages = emptyList()
     )
 }

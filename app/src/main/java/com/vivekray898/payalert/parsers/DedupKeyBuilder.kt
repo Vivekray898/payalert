@@ -2,6 +2,7 @@ package com.vivekray898.payalert.parsers
 
 import java.math.BigDecimal
 import java.math.RoundingMode
+import java.security.MessageDigest
 import java.util.Locale
 
 /**
@@ -25,8 +26,9 @@ object DedupKeyBuilder {
         utr: String?,
         merchant: String?,
         receivedAt: Long,
-        windowMinutes: Int = DEFAULT_WINDOW_MINUTES
-    ): String = build(kind, amount, utr, merchant, receivedAt, windowMinutes)
+        windowMinutes: Int = DEFAULT_WINDOW_MINUTES,
+        eventId: String? = null
+    ): String = build(kind, amount, utr, merchant, receivedAt, windowMinutes, eventId)
 
     /**
      * Tier-2 semantic key built from the *parsed transaction* so that the same
@@ -95,12 +97,16 @@ object DedupKeyBuilder {
         utr: String?,
         merchant: String?,
         receivedAt: Long,
-        windowMinutes: Int
+        windowMinutes: Int,
+        eventId: String?
     ): String {
         val amountText = String.format(Locale.US, "%.2f", amount)
         val reference = utr?.trim()?.uppercase(Locale.US)
         if (!reference.isNullOrEmpty()) {
             return "utr:$reference|$kind|$amountText"
+        }
+        if (!eventId.isNullOrBlank()) {
+            return "event:${sha256(eventId)}"
         }
         val windowMillis = windowMinutes.coerceAtLeast(1) * 60_000L
         val bucket = receivedAt / windowMillis
@@ -113,6 +119,11 @@ object DedupKeyBuilder {
             ?.replace(Regex("[^a-z0-9]"), "")
             ?.take(24)
             .orEmpty()
+
+    private fun sha256(value: String): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray(Charsets.UTF_8))
+            .joinToString("") { byte -> "%02x".format(Locale.US, byte) }
 
     private const val MERCHANT_BRIDGE_LENGTH = 20
 }

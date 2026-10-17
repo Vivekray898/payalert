@@ -27,18 +27,21 @@ interface DedupDao {
      * primary-key constraint guards it atomically, while the 10-minute prune can
      * target semantic rows without touching exact-only rows.
      */
-    @Query("SELECT EXISTS(SELECT 1 FROM dedup_index WHERE semantic_key = :key)")
-    suspend fun containsSemantic(key: String): Boolean
+    @Query(
+        "SELECT EXISTS(SELECT 1 FROM dedup_index " +
+            "WHERE semantic_key = :key AND (source IS NULL OR source != :source))"
+    )
+    suspend fun containsSemanticFromOtherSource(key: String, source: String): Boolean
 
     /**
      * Persist a semantic key. INSERT OR IGNORE keeps the primary key as the guard:
      * a concurrent duplicate is silently dropped rather than surfacing as an error.
      */
     @Query(
-        "INSERT OR IGNORE INTO dedup_index(dedup_key, semantic_key, seen_at) " +
-            "VALUES(:key, :key, :seenAt)"
+        "INSERT OR IGNORE INTO dedup_index(dedup_key, semantic_key, seen_at, source) " +
+            "VALUES(:key, :key, :seenAt, :source)"
     )
-    suspend fun insertSemantic(key: String, seenAt: Long)
+    suspend fun insertSemantic(key: String, seenAt: Long, source: String)
 
     /** Prune exact keys older than the 3-day retention window. */
     @Query("DELETE FROM dedup_index WHERE seen_at < :before")

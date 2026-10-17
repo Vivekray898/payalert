@@ -23,6 +23,9 @@ class ParserRegistry(private val config: ParserConfig) {
     private val stopWords = config.merchant.stopWords.map { it.lowercase(Locale.US) }.toSet()
     private val ignoredUpiHandles = config.merchant.upiHandlesToIgnore.map { it.uppercase(Locale.US) }.toSet()
     private val skipCategories = config.skip.categories()
+    private val notificationPackages = (
+        config.notificationPackages + config.wallets.flatMap { it.packages }
+        ).map { it.lowercase(Locale.US) }.toSet()
     private val bankSenders = config.banks
         .flatMap { bank -> bank.senders.map { it.uppercase(Locale.US) to bank } }
         .sortedByDescending { it.first.length }
@@ -68,7 +71,23 @@ class ParserRegistry(private val config: ParserConfig) {
     }
 
     fun normalize(text: String): String =
-        text.replace('\n', ' ').replace(WHITESPACE, " ").trim()
+        normalizeDigits(text)
+            .replace(ZERO_WIDTH, "")
+            .replace('\n', ' ')
+            .replace(WHITESPACE, " ")
+            .trim()
+
+    /**
+     * Notification admission is intentionally separate from generic SMS parsing. A bank SMS can
+     * come from an unknown sender, but an arbitrary notification must not become a transaction
+     * merely because it contains a number and the word "paid".
+     */
+    fun isLikelyNotificationSource(packageName: String?, text: String): Boolean {
+        val packageId = packageName?.trim()?.lowercase(Locale.US).orEmpty()
+        if (packageId.isBlank() || text.isBlank()) return false
+        if (packageId in notificationPackages) return true
+        return inferSource(normalize(text), null) != null
+    }
 
     // ------------------------------------------------------------------
     // Skip rules — messages that mention money but are not a settled payment
@@ -89,6 +108,13 @@ class ParserRegistry(private val config: ParserConfig) {
 
     fun detectKind(body: String): String? {
         val lower = body.lowercase(Locale.US)
+
+        // Recipient-facing phrases must win over generic tokens such as "sent" and "paid".
+        // Without this guard, "Rahul sent you Rs 500" is indistinguishable from an outgoing
+        // payment because the word "sent" is also a debit token.
+        if (CREDIT_CONTEXT.any { it.containsMatchIn(lower) }) return "credit"
+        if (DEBIT_CONTEXT.any { it.containsMatchIn(lower) }) return "debit"
+
         val hasDebit = config.direction.debit.any { matches(lower, it) }
         val hasCredit = config.direction.credit.any { matches(lower, it) }
         return when {
@@ -201,7 +227,25 @@ class ParserRegistry(private val config: ParserConfig) {
     private companion object {
         const val PARSER_NAME = "config-v1"
         val WHITESPACE = Regex("\\s+")
+        val ZERO_WIDTH = Regex("[\\u200B\\u200C\\u200D\\uFEFF]")
         val NON_ALPHANUMERIC = Regex("[^A-Z0-9]")
         val LEADING_LABEL = Regex("(?i)^(?:vpa|upi|to|from)[\\s/:]+")
+        val CREDIT_CONTEXT = listOf(
+            Regex("(?i)\\b(?:paid|sent|transferred)\\s+you\\b"),
+            Regex("(?i)\\b(?:sent|transferred)\\b.{0,40}\\bto\\s+you\\b"),
+            Regex("(?i)\\bto\\s+you\\b.{0,30}\\b(?:paid|sent|transferred)\\b")
+        )
+        val DEBIT_CONTEXT = listOf(
+            Regex("(?i)\\byou\\s+(?:paid|sent|transferred)\\b"),
+            Regex("(?i)\\b(?:paid|sent|transferred)\\b.{0,40}\\b(?:to|for)\\b")
+        )
+
+        fun normalizeDigits(text: String): String = buildString(text.length) {
+            text.forEach { character ->
+                val digit = Character.digit(character, 10)
+                if (digit >= 0 && character !in '0'..'9') append(('0'.code + digit).toChar())
+                else append(character)
+            }
+        }
     }
 }
