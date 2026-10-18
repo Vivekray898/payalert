@@ -1045,6 +1045,15 @@ speech sequence:
 10-18 17:31:02.058 I/PayAlertSound(7122): mode=SPEECH event=speak_audio_start t=28708801 preview=false leadMs=128
 ```
 
+The History UI readback after that SMS contained one stored row:
+
+```text
+text="+₹779.00  |  −₹0.00"
+text="AUDIT SMS STORE"
+text="18 Oct 2026, 17:31 · via SMS"
+text="+779.00"
+```
+
 Deduplication: the same payment notification was posted twice one second apart. The raw logcat
 result was one acceptance, one speech start and one duplicate:
 
@@ -1054,6 +1063,15 @@ result was one acceptance, one speech start and one duplicate:
 10-18 17:32:40.872 I/PayAlertSound(7122): mode=SPEECH event=speak_start t=28807615 preview=false
 10-18 17:32:41.643 D/PayAlert(7122): Notification from com.phonepe.app: Received Rs.500 from ZOMATO@ybl. UTR 260009999995
 10-18 17:32:41.650 I/PayAlert(7122): Notification pipeline result: duplicate
+```
+
+The History UI contained one matching row for the two identical notification deliveries:
+
+```text
+text="PhonePe"
+text="ZOMATO@ybl"
+text="18 Oct 2026, 17:32 · via PhonePe"
+text="+500.00"
 ```
 
 Relay: not re-run in this pass because the physical employee device was not attached. No relay
