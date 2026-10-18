@@ -268,3 +268,22 @@ runs, the TTS utterance log line, and the `pruneSemanticBefore` fix.
 | Speech rate/pitch/volume, chime, vibration — audibility | headless emulator, nothing was listened to |
 | The reference app's own dedup constants | the reference exposes no readable 5-/10-minute values; PayAlert's constants are its own |
 | SMS path re-run | not re-executed this pass; §9.4.5 remains its standalone evidence and does not cover 3.1b |
+
+## 10. Efficiency, security, resource usage
+
+These rows use measured output from `BUILD_AND_VERIFICATION.md` §20. They describe the observed
+scope and remaining gaps; they do not claim a result where the number did not move.
+
+| Area | Status | Evidence and remaining gap |
+|---|---|---|
+| Cold startup | `implemented and verified` | Emulator force-stop/start runs were 1042/817/867 ms before and 955/841/912 ms after. All were under the 2000 ms target. Android reported `LaunchState: WARM` despite an absent process immediately before launch. No physical-device run was possible. |
+| Release APK shrinking | `implemented and verified` | Release APK changed from 13,307,435 bytes to 3,519,190 bytes after `isMinifyEnabled=true` and `isShrinkResources=true`. Debug remains unminified. |
+| Debug APK size | `partial` | Clean debug output was 17,603,429 bytes before and after the audit; no debug-size reduction was claimed. Bouncy Castle and ZXing remain because relay cryptography and QR generation use them. |
+| Compose frame timing | `partial` | Home-only sample was 3.85% janky; History-only was 7.14% over 42 frames. The short sample did not identify a safe small edit, so History remains a follow-up profile target. |
+| APK secret scan | `implemented and verified` | No credential value was found. Source grep had one comment-only `service_role` match; the APK asset scan matched only parser OTP vocabulary. |
+| Exported components | `implemented and verified` | Launcher, SMS receiver, boot receiver and notification listener are the four exported components. The listener remains exported with `BIND_NOTIFICATION_LISTENER_SERVICE` because system binding requires it; internal services/providers remain non-exported. |
+| Backup scope | `implemented and verified` | `android:allowBackup` changed from `true` to `false`; `aapt2 dump xmltree` reports `allowBackup=false`. |
+| Idle wake locks | `implemented and verified` | `dumpsys power` reported `Wake Locks: size=0` before and after a 300-second screen-off idle interval, with no package-specific PayAlert lock. The bounded five-second FCM display wake remains unchanged. |
+| Relay idle request count | `partial` | No employee device was attached, so the five-minute `relay_fetch` count and real-time latency could not be paired. The 10-second foreground pump, 30-second engine loop and 15-minute WorkManager floor were not changed. |
+| Employee foreground-service role guard | `implemented and verified` | Source guard stops and returns `START_NOT_STICKY` before `startForeground` when the role is not EMPLOYEE. Owner-emulator service inspection showed no employee service. |
+| Listener cleanup | `partial` | Compose observers pair `addObserver` with `removeObserver` in `onDispose`. SharedPreferences listeners are process-scoped and have no Activity teardown; no runtime leak measurement justified changing them. |

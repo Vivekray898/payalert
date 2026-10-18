@@ -111,3 +111,17 @@ allowed deviations.
 | Static review | `supabase/schema.sql` began with `DROP TABLE … CASCADE` | Rewritten as an idempotent, non-destructive migration; the destructive reset is commented out and clearly labelled |
 | Runtime (Settings) | The minimum-amount field re-seeded its text from settings on every keystroke, so typing `1500` produced `1.0500…` — the threshold could not be entered by hand | The field keeps its own text and only the parsed value is stored; it also renders `1000` rather than `1000.0`. Verified by typing `1500` one character at a time with a recomposition between keys |
 | Runtime (onboarding launch) | The setup wizard passed `R.mipmap.ic_launcher` (an adaptive-icon XML) to Compose `painterResource`, causing `IllegalArgumentException` before the first step rendered | Replaced the header reference with the proper vector `R.drawable.ic_launcher_foreground`; emulator clean launch and all four wizard steps were runtime-verified with empty crash-filter logs. Physical-device verification remains unavailable because no wireless device was connected |
+
+### Audit additions — §20 measured pass
+
+| Found by | Defect | Fix | Evidence |
+|---|---|---|---|
+| Release build measurement | Release builds had `isMinifyEnabled = false` and no resource shrinking | Enabled `isMinifyEnabled = true` and `isShrinkResources = true` in `app/build.gradle.kts:80–81` | Release APK changed from 13,307,435 bytes to 3,519,190 bytes; both release builds completed successfully |
+| Backup manifest audit | `android:allowBackup="true"` allowed backup behavior even though selected files were excluded | Set `android:allowBackup="false"` in `app/src/main/AndroidManifest.xml:42` | Built APK `aapt2 dump xmltree` reports `allowBackup=false` |
+
+The following requested checks did **not** produce a defect, so no behavior change was made:
+
+| Check | Measurement | Decision |
+|---|---|---|
+| Wake lock scope | `dumpsys power` showed `Wake Locks: size=0` before and after a 300-second screen-off idle interval; no PayAlert package lock was present | The only source wake lock is a five-second timeout-bounded FCM display wake; leave it unchanged |
+| Exported components | The four exported components are the launcher, SMS receiver, boot receiver and system-bound notification listener. The latter has `BIND_NOTIFICATION_LISTENER_SERVICE`; all app-started services/providers are non-exported | No unnecessary export was found. Keeping the notification listener exported preserves Android system binding and verified notification detection |

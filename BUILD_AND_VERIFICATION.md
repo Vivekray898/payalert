@@ -653,3 +653,409 @@ The wireless physical device was not connected and `adb mdns services` returned 
 services. Therefore no `/tmp/onboarding-physical.log` was produced and the physical-device launch
 remains unverified. The emulator launch and full wizard walkthrough are runtime-verified; the
 physical-device status is not raised without its own logcat evidence.
+
+## 20. Efficiency, security and resource audit — measured pass
+
+This section records the audit requested after §19. No feature code was removed, no dependency was
+added, and the notification-listener export was intentionally retained because Android binds a
+`NotificationListenerService` through the exported component protected by
+`BIND_NOTIFICATION_LISTENER_SERVICE`.
+
+### 20.1 Baseline measurements before edits
+
+The repository was clean before the audit edits. Baseline build commands were:
+
+```text
+./gradlew :app:assembleDebug
+./gradlew :app:assembleRelease
+```
+
+Results:
+
+```text
+debug APK:   app/build/outputs/apk/debug/app-debug.apk
+             17,603,429 bytes
+release APK: app/build/outputs/apk/release/app-release-unsigned.apk
+             13,307,435 bytes
+```
+
+The debug APK's largest uncompressed entries were:
+
+```text
+18,912,764  classes.dex
+12,746,888  classes18.dex
+ 5,205,080  classes19.dex
+   752,652  org/bouncycastle/pqc/crypto/picnic/lowmcL5.bin.properties
+   629,372  resources.arsc
+   355,520  classes16.dex
+   350,101  org/bouncycastle/pqc/crypto/picnic/lowmcL3.bin.properties
+```
+
+The Bouncy Castle and ZXing dependencies were not removed: Bouncy Castle supplies the relay
+cryptography and ZXing supplies the QR screen. Their removal would be a feature decision, not a
+safe audit-only change.
+
+Cold-start command, repeated three times on `emulator-5554`:
+
+```text
+adb -s emulator-5554 shell am force-stop com.vivekray898.payalert
+adb -s emulator-5554 shell am start -W -n com.vivekray898.payalert/.ui.MainActivity
+```
+
+An additional verification launch showed the process absent from `pidof` immediately before
+starting. Android reported `LaunchState: WARM` for all runs despite the force-stop; the reported
+times are retained exactly:
+
+| Target | Run | TotalTime | WaitTime | LaunchState |
+|---|---:|---:|---:|---|
+| Pixel 8 Pro AVD, API 34 | 1 | 1042 ms | 1045 ms | WARM |
+| Pixel 8 Pro AVD, API 34 | 2 | 817 ms | 822 ms | WARM |
+| Pixel 8 Pro AVD, API 34 | 3 | 867 ms | 869 ms | WARM |
+| Physical device | — | not run | not run | no device attached |
+
+The emulator measurements were below the 2000 ms target. No physical device was attached:
+
+```text
+List of devices attached
+emulator-5554          device product:sdk_gphone64_arm64 model:sdk_gphone64_arm64 device:emu64a transport_id:1
+```
+
+### 20.2 Changes and after measurements
+
+Release shrinking was disabled in the baseline configuration:
+
+```diff
+ release {
+-    isMinifyEnabled = false
++    isMinifyEnabled = true
++    isShrinkResources = true
+     proguardFiles(
+```
+
+After `./gradlew :app:assembleRelease`:
+
+```text
+release APK before R8/resource shrinking: 13,307,435 bytes
+release APK after R8/resource shrinking:    3,519,190 bytes
+absolute change:                            9,788,245 bytes smaller
+relative change:                            73.5547%
+BUILD SUCCESSFUL
+```
+
+Debug remains unminified. The final clean debug APK was 17,603,429 bytes.
+
+Post-change startup runs used the rebuilt debug APK:
+
+| Target | Run | TotalTime | WaitTime | LaunchState |
+|---|---:|---:|---:|---|
+| Pixel 8 Pro AVD, API 34 | 1 | 955 ms | 957 ms | WARM |
+| Pixel 8 Pro AVD, API 34 | 2 | 841 ms | 847 ms | WARM |
+| Pixel 8 Pro AVD, API 34 | 3 | 912 ms | 916 ms | WARM |
+
+The before/after debug startup samples overlap; no startup change is attributed to the release-only
+R8 setting or the backup flag.
+
+`app/src/main/baseline-prof.txt` was absent before and after this pass. A Macrobenchmark/Profile
+Installer follow-up is still needed before assigning a first-launch execution effect to a Baseline
+Profile.
+
+### 20.3 Compose frame timing
+
+Command:
+
+```text
+adb shell dumpsys gfxinfo com.vivekray898.payalert reset
+# interact with Home and History
+adb shell dumpsys gfxinfo com.vivekray898.payalert
+```
+
+Combined Home/History sample before the edits:
+
+```text
+Total frames rendered: 92
+Janky frames: 3 (3.26%)
+50th percentile: 17ms
+90th percentile: 34ms
+95th percentile: 40ms
+99th percentile: 150ms
+Number Missed Vsync: 1
+```
+
+Post-edit samples were separated by screen:
+
+```text
+Home-only:
+Janky frames: 2 (3.85%)
+50th percentile: 17ms
+90th percentile: 19ms
+95th percentile: 22ms
+99th percentile: 32ms
+
+History-only:
+Janky frames: 3 (7.14%)
+50th percentile: 17ms
+90th percentile: 34ms
+95th percentile: 38ms
+99th percentile: 150ms
+```
+
+History crossed the 5% note threshold in a short 42-frame sample. No UI code was changed because
+the sample does not identify a recomposition hotspot, and the release/backup edits do not touch
+Compose rendering. A longer trace with recomposition counts is the next measurement.
+
+### 20.4 Security audit
+
+The source secret scan was:
+
+```text
+grep -rE "sb_secret|service_role|SUPABASE_SERVICE|AIza[0-9A-Za-z_-]{35}" app/src/main/ || echo "none found"
+```
+
+Output:
+
+```text
+app/src/main/java/com/vivekray898/payalert/team/TeamClientProtocol.kt:
+    // Legacy anon JWTs remain public keys; service_role/secret keys are never accepted.
+```
+
+This is a comment-only match. No credential value was found. The built-APK asset scan only matched
+the parser's expected OTP phrase (`"one time password"`); it did not contain a secret, password or
+token value. The publishable Supabase client key remains an allowed public build value by design.
+
+Exported-component source audit:
+
+| Component | Exported | Guard | Decision |
+|---|---:|---|---|
+| `.ui.MainActivity` | true | launcher and auth callback intent filters | required |
+| `.services.PaymentNotificationListener` | true | `BIND_NOTIFICATION_LISTENER_SERVICE` | required for system binding; retained |
+| `.services.SmsReceiver` | true | `BROADCAST_SMS` | required for SMS delivery |
+| `.services.BootReceiver` | true | `BOOT_COMPLETED` and package-replaced broadcasts | required for reboot/update recovery |
+| `.services.PaymentMonitorService` | false | internal start only | already restricted |
+| `.relay.EmployeeRealtimeService` | false | internal start only | already restricted |
+| `.services.PayAlertMessagingService` | false | FCM system delivery | already restricted |
+| `.services.ReminderReceiver` / `.services.ServiceRestartReceiver` | false | internal/system-filtered use | already restricted |
+| `FileProvider` and widget provider | false | URI grants / launcher binding | already restricted |
+
+The built debug APK verified the backup setting:
+
+```text
+A: android:allowBackup(0x01010280)=false
+```
+
+The source diff was:
+
+```diff
+ <application
+     android:name=".PayAlertApplication"
+-    android:allowBackup="true"
++    android:allowBackup="false"
+```
+
+Existing `backup_rules.xml` and `data_extraction_rules.xml` remain in the project. With
+`allowBackup=false`, Android backup is disabled for this application rather than relying on the
+selective rules.
+
+The `relay_fetch` RPC body is authenticated and pairing-scoped:
+
+```sql
+CREATE OR REPLACE FUNCTION public.relay_fetch(
+    p_employee_device_id uuid,
+    p_limit integer DEFAULT 50,
+    p_lease_seconds integer DEFAULT 60
+)
+RETURNS TABLE (
+    message_id uuid,
+    client_message_id uuid,
+    encrypted_envelope bytea,
+    employee_key_id uuid,
+    created_at timestamptz,
+    expires_at timestamptz,
+    lease_token uuid,
+    leased_until timestamptz,
+    delivery_attempts integer
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+DECLARE
+    v_uid uuid := auth.uid();
+    v_pairing_id uuid;
+    v_now timestamptz := pg_catalog.clock_timestamp();
+BEGIN
+    IF v_uid IS NULL THEN
+        RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'authentication_required';
+    END IF;
+    IF p_employee_device_id IS NULL
+       OR p_limit IS NULL OR p_limit NOT BETWEEN 1 AND 100
+       OR p_lease_seconds IS NULL OR p_lease_seconds NOT BETWEEN 1 AND 3600 THEN
+        RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'invalid_relay_fetch';
+    END IF;
+
+    SELECT p.id INTO v_pairing_id
+      FROM public.owner_employees AS p
+      JOIN public.devices AS d ON d.id = p.employee_device_id
+     WHERE p.employee_device_id = p_employee_device_id AND d.user_id = v_uid
+     FOR UPDATE OF p;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'employee_device_not_owned';
+    END IF;
+
+    RETURN QUERY
+    WITH candidates AS (
+        SELECT e.message_id
+          FROM relay_private.envelopes AS e
+         WHERE e.pairing_id = v_pairing_id
+           AND e.expires_at > v_now
+           AND (e.leased_until IS NULL OR e.leased_until <= v_now)
+         ORDER BY e.created_at, e.message_id
+         LIMIT p_limit
+         FOR UPDATE SKIP LOCKED
+    ), leased AS (
+        UPDATE relay_private.envelopes AS e
+           SET lease_token = pg_catalog.gen_random_uuid(),
+               leased_until = v_now + (p_lease_seconds * interval '1 second'),
+               delivery_attempts = e.delivery_attempts + 1
+          FROM candidates AS c
+         WHERE e.message_id = c.message_id
+        RETURNING e.message_id, e.client_message_id, e.encrypted_envelope,
+                  e.employee_key_id, e.created_at, e.expires_at, e.lease_token,
+                  e.leased_until, e.delivery_attempts
+    )
+    SELECT l.message_id, l.client_message_id, l.encrypted_envelope,
+           l.employee_key_id, l.created_at, l.expires_at, l.lease_token,
+           l.leased_until, l.delivery_attempts
+      FROM leased AS l
+     ORDER BY l.created_at, l.message_id;
+END
+$function$;
+```
+
+The RPC returns only the authenticated employee's paired rows and the opaque ciphertext. The
+FCM data-field audit was:
+
+```text
+grep -n "data:" supabase/functions/relay-notify/index.ts
+140:        data: {
+```
+
+The corresponding fields are `type: 'relay_message'` and `message_id: messageId`; the encrypted
+envelope is explicitly absent.
+
+The requested literal payment-field log scan returned no matches:
+
+```text
+grep -rn "Log\.\(d\|i\|w\|e\).*amount\|Log\.\(d\|i\|w\|e\).*merchant\|Log\.\(d\|i\|w\|e\).*utr" app/src/main/java/ | head -20
+(no output)
+```
+
+The notification listener and relay evidence logs can contain a local announcement/raw notification
+string for diagnostics. Those lines are Android logcat output only; no code path sends them to the
+relay or FCM.
+
+### 20.5 Resource-usage measurements
+
+Before the edit, while the emulator was idle with the screen off for 300 seconds:
+
+```text
+Wake Locks: size=0
+Suspend Blockers: size=5
+```
+
+The package-specific query after the five-minute interval produced no output. The only source-level
+wake lock is the five-second, timeout-bounded display wake in
+`RelayAnnouncementNotifier.wakeDisplayBriefly`; `PaymentMonitorService` does not acquire one.
+
+After the edit, the same five-minute screen-off measurement produced:
+
+```text
+Wake Locks: size=0
+Suspend Blockers: size=5
+```
+
+The package-specific query again produced no output. There was no measured out-of-window lock, so no
+wake-lock code was changed.
+
+Relay RPC count was not measured on an employee device. Only the owner emulator was attached, and
+the employee role/device was the required condition for counting the 10-second pump. The 10-second
+foreground pump, 30-second `RelayEngine` loop and 15-minute WorkManager floor were therefore left
+unchanged; changing their cadence without a paired-device latency sample would not satisfy the
+real-time behavior requirement.
+
+The employee-service guard remains before foreground-service startup:
+
+```text
+72:         if (graph.settings.localDeviceRoleState.currentRole != LocalDeviceRole.EMPLOYEE) {
+73:             Log.i(TAG, "not_employee stopping")
+74:             stopSelf()
+75:             return START_NOT_STICKY
+76:         }
+78:         ServiceCompatStartForeground(this)
+```
+
+On the owner emulator, `dumpsys activity services com.vivekray898.payalert` showed
+`PaymentMonitorService` as foreground and no `EmployeeRealtimeService` record.
+
+Listener/observer audit:
+
+```text
+app/src/main/java/com/vivekray898/payalert/ui/home/HomeScreen.kt:136: activity.lifecycle.addObserver(observer)
+app/src/main/java/com/vivekray898/payalert/ui/onboarding/OnboardingScreen.kt:211: lifecycleOwner.lifecycle.addObserver(observer)
+app/src/main/java/com/vivekray898/payalert/role/LocalDeviceRole.kt:83: preferences.registerOnSharedPreferenceChangeListener(listener)
+app/src/main/java/com/vivekray898/payalert/settings/AppSettings.kt:92: rolePreferences.registerOnSharedPreferenceChangeListener { _, key ->
+```
+
+The two Compose registrations unregister in their `onDispose` blocks. The two SharedPreferences
+listeners are process-scoped settings/role state; they have no corresponding Activity teardown and
+were not changed because this audit found no runtime leak measurement. No `registerReceiver` or
+Android `registerListener` call was found in app source.
+
+### 20.6 Build and unit-test evidence
+
+Required commands:
+
+```text
+./gradlew clean :app:assembleDebug
+BUILD SUCCESSFUL in 3s
+41 actionable tasks: 16 executed, 25 from cache
+
+./gradlew :app:testDebugUnitTest --rerun-tasks
+BUILD SUCCESSFUL in 18s
+29 actionable tasks: 29 executed
+```
+
+The generated Gradle report summary is:
+
+```text
+240 tests, 0 failures, 0 skipped, 100% successful
+```
+
+The release build after R8/resource shrinking also completed with `BUILD SUCCESSFUL`.
+
+### 20.7 Runtime regression evidence
+
+Detection: one emulator SMS delivered the following message. The messaging app's mirrored
+notification was intentionally ignored by the notification path, while the SMS path produced one
+speech sequence:
+
+```text
+10-18 17:31:01.821 D/PayAlert(7122): Notification from com.google.android.apps.messaging: HDFC Bank: Rs.779.00 credited to your account from AUDIT SMS STORE. A/c XX9877. UTR 260009999998
+10-18 17:31:01.821 I/PayAlert(7122): Notification pipeline result: mirrored_notification
+10-18 17:31:01.930 I/PayAlertSound(7122): mode=SPEECH event=speak_start t=28708673 preview=false
+10-18 17:31:02.058 I/PayAlertSound(7122): mode=SPEECH event=speak_audio_start t=28708801 preview=false leadMs=128
+```
+
+Deduplication: the same payment notification was posted twice one second apart. The raw logcat
+result was one acceptance, one speech start and one duplicate:
+
+```text
+10-18 17:32:40.576 D/PayAlert(7122): Notification from com.phonepe.app: Received Rs.500 from ZOMATO@ybl. UTR 260009999995
+10-18 17:32:40.628 I/PayAlert(7122): Notification pipeline result: accepted
+10-18 17:32:40.872 I/PayAlertSound(7122): mode=SPEECH event=speak_start t=28807615 preview=false
+10-18 17:32:41.643 D/PayAlert(7122): Notification from com.phonepe.app: Received Rs.500 from ZOMATO@ybl. UTR 260009999995
+10-18 17:32:41.650 I/PayAlert(7122): Notification pipeline result: duplicate
+```
+
+Relay: not re-run in this pass because the physical employee device was not attached. No relay
+logcat line is claimed. The last two-device evidence remains the runtime record in §18/§17, and a
+fresh owner-to-employee test is required after reconnecting the second device.
