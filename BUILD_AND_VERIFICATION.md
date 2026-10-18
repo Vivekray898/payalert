@@ -500,3 +500,156 @@ is established by the shared formatter's unit tests (same function, same `curren
 `777.0 -> "777 rupees"` asserted) plus the employee's log, rather than by an owner-side log line. The
 sentence is visible on screen in the Settings "Preview" row and in the Diagnostics
 "Announcement"/"Spoken" rows.
+
+## 19. Onboarding wizard launch crash — adaptive icon passed to `painterResource`
+
+### Diagnosis
+
+The crash pointed at `OnboardingScreen.kt:293`. The source around that line was:
+
+```text
+288:                     modifier = Modifier.size(52.dp),
+289:                     color = MaterialTheme.colorScheme.surface,
+290:                     shape = CircleShape
+291:                 ) {
+292:                     Icon(
+293:                         painter = painterResource(id = R.mipmap.ic_launcher),
+294:                         contentDescription = "PayAlert logo",
+295:                         tint = androidx.compose.ui.graphics.Color.Unspecified,
+296:                         modifier = Modifier.padding(6.dp)
+297:                     )
+```
+
+The exact resource inspection was:
+
+```text
+$ ls -la app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+-rw-r--r--@ 1 mamanjonpal  staff  336 Oct 15 17:51 app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+$ file app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml: XML 1.0 document text, ASCII text
+$ head -3 app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background"/>
+```
+
+Line 293 called `painterResource(R.mipmap.ic_launcher)`, and that mipmap resource resolved to an
+Android adaptive-icon XML, not a vector drawable or raster image accepted by Compose's
+`painterResource`.
+
+### Fix
+
+Only the unsupported asset reference changed. `R.mipmap.ic_launcher` was replaced with
+`R.drawable.ic_launcher_foreground`. The replacement is a real vector drawable:
+
+```text
+$ head -3 app/src/main/res/drawable/ic_launcher_foreground.xml
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+```
+
+No onboarding step order, permission action, detection, parsing, deduplication, TTS or relay code
+was changed by this crash fix.
+
+### Other onboarding references checked
+
+```text
+$ grep -rn "painterResource\|vectorResource" app/src/main/java/com/vivekray898/payalert/ui/onboarding/
+app/src/main/java/com/vivekray898/payalert/ui/onboarding/OnboardingScreen.kt:47:import androidx.compose.ui.res.painterResource
+app/src/main/java/com/vivekray898/payalert/ui/onboarding/OnboardingScreen.kt:132:                            painter = painterResource(
+app/src/main/java/com/vivekray898/payalert/ui/onboarding/OnboardingScreen.kt:293:                        painter = painterResource(id = R.drawable.ic_launcher_foreground),
+```
+
+The step icon at line 132 targets `R.drawable.ic_check_circle`, which begins with `<vector>`;
+the pending icon targets `R.drawable.ic_warning`, which also begins with `<vector>`. The repaired
+header icon now targets `R.drawable.ic_launcher_foreground`, which begins with `<vector>`.
+There are no `vectorResource` calls in the onboarding package.
+
+The shared component scan found these additional calls:
+
+```text
+$ grep -rn "painterResource\|vectorResource" app/src/main/java/com/vivekray898/payalert/ui/components/
+app/src/main/java/com/vivekray898/payalert/ui/components/Common.kt:42:import androidx.compose.ui.res.painterResource
+app/src/main/java/com/vivekray898/payalert/ui/components/Common.kt:196:                painter = painterResource(id = com.vivekray898.payalert.R.drawable.ic_search),
+app/src/main/java/com/vivekray898/payalert/ui/components/Common.kt:204:                        painter = painterResource(id = com.vivekray898.payalert.R.drawable.ic_clear),
+app/src/main/java/com/vivekray898/payalert/ui/components/Common.kt:246:                painter = painterResource(id = icon),
+app/src/main/java/com/vivekray898/payalert/ui/components/Common.kt:381:                painter = painterResource(id = com.vivekray898.payalert.R.drawable.ic_volume_up),
+```
+
+Those shared references resolve to the existing drawable vectors; the dynamic `icon` parameter is
+used by callers with existing drawable resources and is not part of the onboarding crash path.
+
+### Emulator verification
+
+Project checks and APK size:
+
+```text
+$ make test
+./gradlew --no-daemon --offline :app:testDebugUnitTest
+BUILD SUCCESSFUL in 12s
+29 actionable tasks: 5 executed, 2 from cache, 22 up-to-date
+
+$ make build
+./gradlew --no-daemon --offline :app:assembleDebug
+BUILD SUCCESSFUL in 6s
+40 actionable tasks: 40 up-to-date
+
+$ ls -la app/build/outputs/apk/debug/app-debug.apk
+-rw-r--r--@ 1 mamanjonpal  staff  17603429 Oct 18 11:53 app/build/outputs/apk/debug/app-debug.apk
+```
+
+Install, data reset and launch output:
+
+```text
+Performing Streamed Install
+Success
+Success
+Starting: Intent { cmp=com.vivekray898.payalert/.ui.MainActivity }
+```
+
+The post-fix filtered log was empty:
+
+```text
+$ wc -c /tmp/onboarding-launch.log
+       0 /tmp/onboarding-launch.log
+```
+
+This empty log proves that the emulator launch produced no `FATAL`, `AndroidRuntime`,
+`painterResource`, or `IllegalArgumentException` line matching the crash filter. The first-run
+capture was `screenshots/onboarding/first-run.png` (136,738 bytes). The system permission dialog
+was visible over the rendered wizard, proving that Compose reached the first step. The onboarding
+captures were deleted after verification at the user's request; no new onboarding screenshot
+artifacts remain in the workspace.
+
+The emulator walkthrough rendered all four steps and reached Home after Finish. Captured sizes
+before deletion:
+
+```text
+screenshots/onboarding/walkthrough-step-1.png   142082 bytes
+screenshots/onboarding/walkthrough-step-2.png   148506 bytes
+screenshots/onboarding/walkthrough-step-3.png   145628 bytes
+screenshots/onboarding/walkthrough-step-4.png   152643 bytes
+screenshots/onboarding/after-finish-home.png    143154 bytes
+```
+
+The walkthrough log filter was also empty:
+
+```text
+$ wc -c /tmp/onboarding-walkthrough.log
+       0 /tmp/onboarding-walkthrough.log
+```
+
+### Physical-device verification limit
+
+At verification time `adb devices -l` returned only:
+
+```text
+List of devices attached
+emulator-5554          device product:sdk_gphone64_arm64 model:sdk_gphone64_arm64 device:emu64a transport_id:543
+```
+
+The wireless physical device was not connected and `adb mdns services` returned no discovered
+services. Therefore no `/tmp/onboarding-physical.log` was produced and the physical-device launch
+remains unverified. The emulator launch and full wizard walkthrough are runtime-verified; the
+physical-device status is not raised without its own logcat evidence.

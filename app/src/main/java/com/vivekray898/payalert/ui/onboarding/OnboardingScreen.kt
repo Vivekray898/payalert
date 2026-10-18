@@ -17,13 +17,19 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -40,7 +46,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -51,10 +56,7 @@ import com.vivekray898.payalert.onboarding.OnboardingStep
 import com.vivekray898.payalert.ui.PermissionStatus
 import kotlinx.coroutines.delay
 
-/**
- * One step in the onboarding wizard. Each step corresponds to one permission and shows
- * its live state, with a Grant/Request button when pending and a green check when granted.
- */
+/** One permission step, presented as a calm, focused dashboard card. */
 @Composable
 private fun StepCard(
     step: OnboardingStep,
@@ -91,77 +93,92 @@ private fun StepCard(
             delay(500L)
         }
     }
-    val circleColor = if (granted) {
+    val statusColor = if (granted) {
         MaterialTheme.colorScheme.tertiary
     } else {
-        MaterialTheme.colorScheme.outlineVariant
+        MaterialTheme.colorScheme.primary
     }
-    val iconTint = if (granted) {
-        MaterialTheme.colorScheme.onTertiary
+    val statusContainer = if (granted) {
+        MaterialTheme.colorScheme.tertiaryContainer
     } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
+        MaterialTheme.colorScheme.primaryContainer
     }
-    Box(
+
+    Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 16.dp),
-        contentAlignment = Alignment.Center
+            .padding(horizontal = 16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = MaterialTheme.shapes.extraLarge,
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 22.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(64.dp)
-                    .clip(CircleShape)
-                    .background(circleColor),
-                contentAlignment = Alignment.Center
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Icon(
-                    painter = painterResource(
-                        id = if (granted) R.drawable.ic_check_circle else R.drawable.ic_warning
-                    ),
-                    contentDescription = null,
-                    tint = iconTint,
-                    modifier = Modifier.size(36.dp)
-                )
+                Surface(
+                    color = statusContainer,
+                    contentColor = statusColor,
+                    shape = CircleShape,
+                    modifier = Modifier.size(64.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            painter = painterResource(
+                                id = if (granted) R.drawable.ic_check_circle else R.drawable.ic_warning
+                            ),
+                            contentDescription = if (granted) "Permission granted" else "Permission required",
+                            tint = statusColor,
+                            modifier = Modifier.size(34.dp)
+                        )
+                    }
+                }
+                Surface(
+                    color = statusContainer,
+                    contentColor = statusColor,
+                    shape = MaterialTheme.shapes.small
+                ) {
+                    Text(
+                        text = if (granted) "Ready" else "Action needed",
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
+                }
             }
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                )
-            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             if (!granted) {
-                Button(onClick = { onGrant() }) {
-                    Text("Grant")
+                Button(
+                    onClick = { onGrant() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Enable permission")
                 }
                 if (step == OnboardingStep.NOTIFICATION_ACCESS ||
                     step == OnboardingStep.BATTERY
                 ) {
-                    TextButton(onClick = { onGrant() }) {
+                    OutlinedButton(
+                        onClick = { onGrant() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         Text("Open system settings")
                     }
                 }
             } else {
-                Text(
-                    text = "Granted",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.tertiary,
-                    textDecoration = TextDecoration.Underline
-                )
+                Text("Permission is ready. You can continue.", color = statusColor)
             }
         }
     }
@@ -254,58 +271,139 @@ fun OnboardingScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween
+            .background(MaterialTheme.colorScheme.background)
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+            shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp)
         ) {
-            Text(
-                text = "Set up PayAlert",
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.primary
-            )
-            Text(
-                text = "Step ${currentIndex + 1} of ${steps.size}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(24.dp))
+            Row(
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Surface(
+                    modifier = Modifier.size(52.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = CircleShape
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                        contentDescription = "PayAlert logo",
+                        tint = androidx.compose.ui.graphics.Color.Unspecified,
+                        modifier = Modifier.padding(6.dp)
+                    )
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Set up PayAlert",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "A quick setup for reliable payment alerts",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.82f)
+                    )
+                }
+                Text(
+                    "${currentIndex + 1}/${steps.size}",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
 
-        StepCard(
-            step = step,
-            repository = repository,
-            launchedEffectKey = launchedKey,
-            onGrant = { grant(step) }
-        )
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Bottom
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(androidx.compose.foundation.rememberScrollState())
+                .padding(top = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            TextButton(onClick = onComplete) {
-                Text("Skip all")
-            }
-            if (currentIndex < steps.size - 1) {
-                Button(
-                    onClick = { currentIndex++ },
-                    enabled = snapshot.get(step)
-                ) {
-                    Text("Next")
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                steps.forEachIndexed { index, _ ->
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(
+                                if (index <= currentIndex) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.outlineVariant
+                                }
+                            )
+                    )
                 }
-            } else {
-                Button(
-                    onClick = {
-                        repository.markComplete()
-                        onComplete()
-                    },
-                    enabled = snapshot.get(step)
-                ) {
-                    Text("Finish")
+            }
+            Text(
+                text = when (step) {
+                    OnboardingStep.POST_NOTIFICATIONS -> "Keep important alerts visible"
+                    OnboardingStep.SMS -> "Read bank payment messages"
+                    OnboardingStep.NOTIFICATION_ACCESS -> "Listen for UPI payments"
+                    OnboardingStep.BATTERY -> "Stay reliable in the background"
+                },
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 20.dp)
+            )
+            StepCard(
+                step = step,
+                repository = repository,
+                launchedEffectKey = launchedKey,
+                onGrant = { grant(step) }
+            )
+            Text(
+                text = "You can change these permissions later from Settings.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 20.dp)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 4.dp
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onComplete) {
+                    Text("Skip setup")
+                }
+                if (currentIndex < steps.size - 1) {
+                    Button(
+                        onClick = { currentIndex++ },
+                        enabled = snapshot.get(step)
+                    ) {
+                        Text("Continue")
+                    }
+                } else {
+                    Button(
+                        onClick = {
+                            repository.markComplete()
+                            onComplete()
+                        },
+                        enabled = snapshot.get(step)
+                    ) {
+                        Text("Finish setup")
+                    }
                 }
             }
         }
