@@ -1,11 +1,13 @@
 package com.vivekray898.payalert.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -44,6 +46,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.vivekray898.payalert.ui.theme.Brand
 
 // ---------------------------------------------------------------------------
 // Status / amount chips used across the rebuilt screens
@@ -299,7 +303,8 @@ fun SectionCard(
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        shape = MaterialTheme.shapes.extraLarge,
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -311,6 +316,78 @@ fun SectionCard(
                 color = MaterialTheme.colorScheme.primary
             )
             content()
+        }
+    }
+}
+
+/** Bright, edge-to-edge page header used by the reference dashboard screens. */
+@Composable
+fun BlueHeader(
+    title: String,
+    modifier: Modifier = Modifier,
+    actions: @Composable RowScope.() -> Unit = {}
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary,
+        shape = RoundedCornerShape(bottomStart = 26.dp, bottomEnd = 26.dp),
+        tonalElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.weight(1f)
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                content = actions
+            )
+        }
+    }
+}
+
+/** Reference-style white pill for the app's voice preview affordance. */
+@Composable
+fun VoicePill(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .clickable(onClick = onClick)
+            .semantics { contentDescription = "Test voice announcement" },
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.primary,
+        shape = RoundedCornerShape(28.dp),
+        tonalElevation = 2.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                painter = painterResource(id = com.vivekray898.payalert.R.drawable.ic_volume_up),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp)
+            )
+            Text(
+                text = "Voice",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
         }
     }
 }
@@ -352,11 +429,10 @@ fun ValueRow(
     }
 }
 
-/** Semantic colours for a health value, shared by Settings and Home so they never drift.
- *  Taken from the brand palette (icon teal / icon orange / Material error red). */
-val StatusOkColor: Color = Color(0xFF058E7A)
-val StatusWarnColor: Color = Color(0xFFF65026)
-val StatusBadColor: Color = Color(0xFFB3261E)
+/** Semantic colours shared by status rows so the shell's finance signals never drift. */
+val StatusOkColor: Color = Brand.Credit
+val StatusWarnColor: Color = Brand.Warning
+val StatusBadColor: Color = Brand.Debit
 
 /** A labelled toggle. The whole row is the control, with switch semantics on it. */
 @Composable
@@ -386,7 +462,7 @@ fun SwitchRow(
                 Text(
                     text = description,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.secondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }

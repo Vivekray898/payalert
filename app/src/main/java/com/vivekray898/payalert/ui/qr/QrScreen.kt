@@ -18,6 +18,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -32,7 +35,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import com.vivekray898.payalert.ui.components.OverlayHeader
+import com.vivekray898.payalert.ui.components.BlueHeader
 import com.vivekray898.payalert.ui.components.SectionCard
 import com.vivekray898.payalert.ui.components.ValueRow
 import com.vivekray898.payalert.upi.QrEncoder
@@ -54,123 +57,146 @@ fun QrScreen(onBack: () -> Unit) {
     var noteText by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var copied by remember { mutableStateOf(false) }
+    var showEditor by remember { mutableStateOf(false) }
 
     val amount = amountText.trim().toDoubleOrNull()
     val uri = if (upiId.isBlank()) "" else UpiLink.build(upiId, payeeName, amount, noteText)
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        OverlayHeader("Payment QR", onBack)
-
-        SectionCard(title = "Your UPI id") {
-            OutlinedTextField(
-                value = upiId,
-                onValueChange = {
-                    upiId = it
-                    error = null
-                    settings.upiId = it
-                },
-                label = { Text("UPI id, e.g. name@bank") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = payeeName,
-                onValueChange = {
-                    payeeName = it
-                    settings.payeeName = it
-                },
-                label = { Text("Payee name shown to the payer") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = amountText,
-                onValueChange = { amountText = it },
-                label = { Text("Amount (optional — blank lets the payer choose)") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = noteText,
-                onValueChange = { noteText = it },
-                label = { Text("Note (optional)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            if (amountText.isNotBlank() && amount == null) {
-                Text(
-                    "Amount must be a number",
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        }
-
-        if (uri.isNotEmpty()) {
-            SectionCard(title = "Scan to pay") {
-                val bitmap = remember(uri) { renderQr(uri) }
-                if (bitmap == null) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        BlueHeader(title = "Scan to Pay")
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = MaterialTheme.shapes.extraLarge,
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
+                    horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
                     Text(
-                        "Could not generate the code — the UPI id may be too long.",
-                        color = MaterialTheme.colorScheme.error
+                        "Your Payment QR Code",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.primary
                     )
-                } else {
-                    Image(
-                        bitmap = bitmap.asImageBitmap(),
-                        contentDescription = "UPI payment QR code",
-                        // Drawn on white regardless of theme: a QR must stay dark-on-light.
-                        modifier = Modifier
-                            .size(240.dp)
-                            .background(androidx.compose.ui.graphics.Color.White)
-                    )
-                }
-                ValueRow("Type", "UPI collect request")
-                ValueRow("Payee", payeeName.ifBlank { "not set" })
-                ValueRow(
-                    "Amount",
-                    amount?.let { "fixed at $it" } ?: "chosen by the payer"
-                )
-                Text(
-                    text = uri,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.secondary
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = {
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
-                            as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("UPI link", uri))
-                        copied = true
-                    }) { Text(if (copied) "Copied" else "Copy link") }
-                    Button(onClick = { openUpiApp(context, uri) }) { Text("Open in UPI app") }
+                    if (uri.isEmpty()) {
+                        IconQrPlaceholder()
+                        Text("No UPI Address", style = MaterialTheme.typography.titleLarge)
+                        Text(
+                            "Add your UPI address to generate payment QR code",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Button(onClick = { showEditor = true }) { Text("＋  Add UPI Address") }
+                    } else {
+                        val bitmap = remember(uri) { renderQr(uri) }
+                        if (bitmap == null) {
+                            Text(
+                                "Could not generate the code — the UPI id may be too long.",
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        } else {
+                            Image(
+                                bitmap = bitmap.asImageBitmap(),
+                                contentDescription = "UPI payment QR code",
+                                modifier = Modifier
+                                    .size(240.dp)
+                                    .background(androidx.compose.ui.graphics.Color.White)
+                            )
+                        }
+                        Text(payeeName.ifBlank { upiId }, style = MaterialTheme.typography.titleMedium)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
+                                    as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("UPI link", uri))
+                                copied = true
+                            }) { Text(if (copied) "Copied" else "Copy link") }
+                            Button(onClick = { openUpiApp(context, uri) }) { Text("Open app") }
+                        }
+                        TextButton(onClick = { showEditor = true }) { Text("Edit UPI details") }
+                    }
                 }
             }
-        } else {
-            SectionCard(title = "Scan to pay") {
-                Text(
-                    "Enter your UPI id to generate the payment code.",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
-        }
 
-        SectionCard(title = "How this works") {
-            Text(
-                "The code encodes the standard UPI collect link (upi://pay?pa=...). Any UPI app " +
-                    "can scan it to send you money. Nothing is uploaded: the code is generated " +
-                    "on this device.",
-                style = MaterialTheme.typography.bodyMedium
-            )
+            if (showEditor) {
+                SectionCard(title = "Payment details") {
+                    OutlinedTextField(
+                        value = upiId,
+                        onValueChange = {
+                            upiId = it
+                            error = null
+                            settings.upiId = it
+                        },
+                        label = { Text("UPI id, e.g. name@bank") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = payeeName,
+                        onValueChange = {
+                            payeeName = it
+                            settings.payeeName = it
+                        },
+                        label = { Text("Payee name shown to payer") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = amountText,
+                        onValueChange = { amountText = it },
+                        label = { Text("Amount (optional)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = noteText,
+                        onValueChange = { noteText = it },
+                        label = { Text("Note (optional)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (amountText.isNotBlank() && amount == null) {
+                        Text("Amount must be a number", color = MaterialTheme.colorScheme.error)
+                    }
+                    error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    if (upiId.isNotBlank()) {
+                        TextButton(onClick = { showEditor = false }) { Text("Done") }
+                    }
+                }
+            }
+
+            SectionCard(title = "How to Use") {
+                Text(
+                    "1. Share or display this QR code to receive payments\n" +
+                        "2. The payer can scan it with any UPI app\n" +
+                        "3. Add an amount to create a specific payment QR",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
+}
+
+@Composable
+private fun IconQrPlaceholder() {
+    Icon(
+        painter = androidx.compose.ui.res.painterResource(id = com.vivekray898.payalert.R.drawable.ic_qr_code),
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.size(72.dp)
+    )
 }
 
 private fun openUpiApp(context: Context, uri: String) {

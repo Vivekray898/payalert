@@ -18,15 +18,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -41,10 +37,10 @@ import com.vivekray898.payalert.R
 import com.vivekray898.payalert.data.PaymentEvent
 import com.vivekray898.payalert.export.TransactionExporter
 import com.vivekray898.payalert.ui.SourceLabel
+import com.vivekray898.payalert.ui.components.BlueHeader
 import com.vivekray898.payalert.ui.components.EmptyState
 import com.vivekray898.payalert.ui.components.RoleIndicator
 import com.vivekray898.payalert.ui.components.SearchField
-import com.vivekray898.payalert.ui.components.StatChip
 import com.vivekray898.payalert.ui.formatAmount
 import com.vivekray898.payalert.ui.formatTimestamp
 import com.vivekray898.payalert.relay.ReceivedAnnouncement
@@ -73,7 +69,6 @@ private fun ChipRow(content: @Composable () -> Unit) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TransactionsScreen(
     onOpenAnalytics: () -> Unit = {},
@@ -90,65 +85,64 @@ fun TransactionsScreen(
     val accounts by viewModel.accounts.collectAsState()
     val context = LocalContext.current
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text("History")
-                        RoleIndicator(role)
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onOpenAnalytics) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_chart),
-                            contentDescription = "Analytics"
-                        )
-                    }
-                    IconButton(
-                        onClick = {
-                            viewModel.snapshot { rows ->
-                                com.vivekray898.payalert.ui.components.ExportShare.share(
-                                    context,
-                                    "payalert-history.csv",
-                                    "text/csv",
-                                    TransactionExporter.eventsToCsv(rows)
-                                )
-                            }
-                        }
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_export),
-                            contentDescription = "Export history"
-                        )
-                    }
-                    IconButton(onClick = { viewModel.clearFilters() }) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_filter),
-                            contentDescription = "Clear filters"
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+    Column(modifier = Modifier.fillMaxSize()) {
+        BlueHeader(title = "Passbook") {
+            IconButton(onClick = onOpenAnalytics) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_chart),
+                    contentDescription = "Analytics",
+                    tint = MaterialTheme.colorScheme.onPrimary
                 )
-            )
+            }
+            IconButton(
+                onClick = {
+                    viewModel.snapshot { rows ->
+                        com.vivekray898.payalert.ui.components.ExportShare.share(
+                            context,
+                            "payalert-history.csv",
+                            "text/csv",
+                            TransactionExporter.eventsToCsv(rows)
+                        )
+                    }
+                }
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_export),
+                    contentDescription = "Export history",
+                    tint = MaterialTheme.colorScheme.onPrimary
+                )
+            }
+            IconButton(onClick = { viewModel.clearFilters() }) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_filter),
+                    contentDescription = "Clear filters",
+                    tint = MaterialTheme.colorScheme.onPrimary
+                )
+            }
         }
-    ) { padding ->
+
         // The filters are the first list content rather than a sibling overlay. They now scroll
         // away with the history, and the first payment row always has a real position below them.
         LazyColumn(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .fillMaxWidth()
+                .weight(1f),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            item(key = "passbook-summary") {
+                PassbookSummary(
+                    credits = totals.first,
+                    debits = totals.second
+                )
+            }
+
+            if (events.any { it.account != null }) {
+                item(key = "accounts") {
+                    AccountSummaryStrip(events)
+                }
+            }
+
             item(key = "search") {
                 SearchField(
                     value = term,
@@ -195,21 +189,12 @@ fun TransactionsScreen(
             }
 
             item(key = "totals") {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 12.dp)
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    StatChip("In", formatAmount(totals.first), MaterialTheme.colorScheme.tertiary)
-                    StatChip("Out", formatAmount(totals.second), MaterialTheme.colorScheme.secondary)
-                    StatChip(
-                        "Items",
-                        events.size.toString(),
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Text(
+                    text = "Recent transactions",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
             }
 
             if (receivedAnnouncements.isNotEmpty()) {
@@ -235,6 +220,80 @@ fun TransactionsScreen(
             } else {
                 items(events, key = { it.id }) { event ->
                     TransactionRow(event)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PassbookSummary(credits: Double, debits: Double) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        SummaryCard(
+            label = "Total credits",
+            value = "₹${formatAmount(credits)}",
+            color = MaterialTheme.colorScheme.tertiary,
+            modifier = Modifier.weight(1f)
+        )
+        SummaryCard(
+            label = "Total debits",
+            value = "₹${formatAmount(debits)}",
+            color = MaterialTheme.colorScheme.secondary,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun SummaryCard(
+    label: String,
+    value: String,
+    color: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = MaterialTheme.shapes.large,
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 14.dp)) {
+            Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, style = MaterialTheme.typography.titleLarge, color = color, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun AccountSummaryStrip(events: List<PaymentEvent>) {
+    val accounts = events.mapNotNull { it.account }.distinct().take(4)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        accounts.forEach { account ->
+            val rows = events.filter { it.account == account }
+            val credits = rows.filter { it.kind == "credit" }.sumOf { it.amount }
+            val debits = rows.filter { it.kind == "debit" }.sumOf { it.amount }
+            Card(
+                modifier = Modifier.size(width = 168.dp, height = 92.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = MaterialTheme.shapes.large,
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("Bank account", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(account, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "+₹${formatAmount(credits)}  |  −₹${formatAmount(debits)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
                 }
             }
         }
@@ -331,7 +390,7 @@ internal fun ReceivedAnnouncementRow(announcement: ReceivedAnnouncement) {
     }
 }
 
-/** A history row: a circular direction avatar, the merchant as stored, and a signed amount. */
+/** A passbook row: source and merchant at left, signed amount at right. */
 @Composable
 private fun TransactionRow(event: PaymentEvent) {
     val credit = event.kind == "credit"
@@ -340,19 +399,19 @@ private fun TransactionRow(event: PaymentEvent) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        shape = MaterialTheme.shapes.extraLarge,
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(horizontal = 18.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
-                    .background(accent.copy(alpha = 0.12f), MaterialTheme.shapes.large),
+                    .size(42.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -367,29 +426,27 @@ private fun TransactionRow(event: PaymentEvent) {
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = event.merchant ?: event.bankOrUpi ?: "Payment",
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium
+                    text = event.bankOrUpi ?: "UPI payment",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = event.merchant ?: "Payment",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
                     text = "${formatTimestamp(event.receivedAt)} · ${SourceLabel.displaySource(event)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                event.category?.takeIf { it.isNotBlank() }?.let { category ->
-                    Text(
-                        text = category,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
             }
 
             Spacer(modifier = Modifier.size(4.dp))
 
             Text(
                 text = (if (credit) "+" else "\u2212") + formatAmount(event.amount),
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleLarge,
                 color = accent
             )
         }

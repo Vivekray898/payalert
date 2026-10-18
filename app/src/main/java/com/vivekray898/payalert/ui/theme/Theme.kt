@@ -1,135 +1,134 @@
 package com.vivekray898.payalert.ui.theme
 
+import androidx.compose.material3.Typography
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 
-/** Brand palette extracted from the launcher icon
- * (`app/src/main/ic_launcher-playstore.png`, 512x512, sampled with PIL).
+/**
+ * PayAlert's finance-dashboard palette.
  *
- * Method: every non-background pixel was clustered by nearest-neighbour to four seed colours
- * (navy, orange, teal, gold) and the modal saturated pixel in each cluster was taken as the
- * source constant. The four source values below are the single most representative pixels; the
- * Material3 ramps derived from them live in LightColors / DarkColors.
- *
- *  - Primary    (navy wordmark "Pay")   : #122550
- *  - Secondary  (orange wordmark "Alert", bell body, coin) : #F65026
- *  - Tertiary   (green $ inside the bell) : #058E7A
- *  - Accent     (gold bell top, coin face) : #FE8D13
- *
- * Reproduce with: python3 -c "from PIL import Image; import collections; ..." — see
- * screenshots/PALETTE.md for the exact command and its output.
+ * Blue owns navigation and primary actions, while green and red keep the two money directions
+ * visually distinct at a glance. The light scheme is the product default: a cool gray canvas
+ * gives the white cards and blue header treatment enough contrast without adding visual noise.
  */
 object Brand {
-    val Primary    = androidx.compose.ui.graphics.Color(0xFF122550)
-    val Secondary  = androidx.compose.ui.graphics.Color(0xFFF65026)
-    val Tertiary   = androidx.compose.ui.graphics.Color(0xFF058E7A)
-    val Accent     = androidx.compose.ui.graphics.Color(0xFFFE8D13)
+    val Primary = Color(0xFF1B63E8)
+    val Ink = Color(0xFF12213F)
+    val Background = Color(0xFFF4F7FB)
+    val Surface = Color(0xFFFFFFFF)
+    val Credit = Color(0xFF087A4D)
+    val Debit = Color(0xFFC83F52)
+    val Warning = Color(0xFFA56A00)
+    val Accent = Color(0xFF5E4AE3)
 }
 
-// ---------------------------------------------------------------------------
-// Derive tints from the four source colours so the whole scheme stays on-brand.
-// Alpha-tints use ARGB; full palette tints use HSV interpolation toward white.
-// ---------------------------------------------------------------------------
+private val LightColors = lightColorScheme(
+    primary = Brand.Primary,
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFE4ECFF),
+    onPrimaryContainer = Brand.Ink,
 
-/** Light tint of `c` blended toward white by `f` (0 = pure `c`, 1 = white). */
-private fun tintTowardsWhite(c: androidx.compose.ui.graphics.Color, f: Float): androidx.compose.ui.graphics.Color {
-    return androidx.compose.ui.graphics.Color(
-        c.red + (1f - c.red) * f,
-        c.green + (1f - c.green) * f,
-        c.blue + (1f - c.blue) * f,
-        c.alpha
-    )
-}
+    // Secondary is used by existing transaction rows for money out.
+    secondary = Brand.Debit,
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFFFE6EB),
+    onSecondaryContainer = Color(0xFF5E1523),
 
-/** Dark tint of `c` blended toward black by `f` (0 = pure `c`, 1 = black). */
-private fun tintTowardsBlack(c: androidx.compose.ui.graphics.Color, f: Float): androidx.compose.ui.graphics.Color {
-    return androidx.compose.ui.graphics.Color(
-        c.red * (1f - f),
-        c.green * (1f - f),
-        c.blue * (1f - f),
-        c.alpha
-    )
-}
+    // Tertiary is used by existing transaction rows for money in.
+    tertiary = Brand.Credit,
+    onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFDDF4E8),
+    onTertiaryContainer = Color(0xFF064B30),
 
-// Light palette — Material3 DayNight. No dynamic color: the brand palette wins on every device.
-private val LightColors = androidx.compose.material3.lightColorScheme(
-    primary             = Brand.Primary,
-    onPrimary           = androidx.compose.ui.graphics.Color.White,
-    primaryContainer    = tintTowardsWhite(Brand.Primary, 0.92f),
-    onPrimaryContainer  = Brand.Primary,
-    secondary           = Brand.Secondary,
-    onSecondary         = androidx.compose.ui.graphics.Color.White,
-    secondaryContainer  = tintTowardsWhite(Brand.Secondary, 0.85f),
-    onSecondaryContainer= Brand.Secondary,
-    tertiary            = Brand.Tertiary,
-    onTertiary          = androidx.compose.ui.graphics.Color.White,
-    tertiaryContainer   = tintTowardsWhite(Brand.Tertiary, 0.88f),
-    onTertiaryContainer = Brand.Tertiary,
-    error               = androidx.compose.ui.graphics.Color(0xFFB3261E),
-    onError             = androidx.compose.ui.graphics.Color.White,
-    errorContainer      = tintTowardsWhite(androidx.compose.ui.graphics.Color(0xFFB3261E), 0.85f),
-    onErrorContainer    = androidx.compose.ui.graphics.Color(0xFF410E0C),
+    error = Brand.Debit,
+    onError = Color.White,
+    errorContainer = Color(0xFFFFE6EB),
+    onErrorContainer = Color(0xFF5E1523),
 
-    background = androidx.compose.ui.graphics.Color(0xFFFAFAFA),
-    onBackground = Brand.Primary,
-    surface = androidx.compose.ui.graphics.Color(0xFFFFFFFF),
-    onSurface = Brand.Primary,
-    surfaceVariant = tintTowardsWhite(Brand.Primary, 0.94f),
-    onSurfaceVariant = Brand.Primary.copy(alpha = 0.6f),
-    outline = Brand.Primary.copy(alpha = 0.20f),
-    outlineVariant = Brand.Primary.copy(alpha = 0.12f),
+    background = Brand.Background,
+    onBackground = Brand.Ink,
+    surface = Brand.Surface,
+    onSurface = Brand.Ink,
+    surfaceVariant = Color(0xFFEBF0F7),
+    onSurfaceVariant = Color(0xFF53627A),
+    outline = Color(0xFFCAD3E1),
+    outlineVariant = Color(0xFFDCE3ED),
 
-    inverseSurface = Brand.Primary,
-    inverseOnSurface = androidx.compose.ui.graphics.Color.White,
-    inversePrimary = tintTowardsWhite(Brand.Primary, 0.85f)
+    inverseSurface = Brand.Ink,
+    inverseOnSurface = Color.White,
+    inversePrimary = Color(0xFF9DBBFF)
 )
 
-// Dark palette — hand-tuned from the same four source colours, not a naive invert.
-private val DarkColors = androidx.compose.material3.darkColorScheme(
-    // Primary stays navy but brightened so it reads well on dark surfaces.
-    primary             = tintTowardsWhite(Brand.Primary, 0.78f),
-    onPrimary           = Brand.Primary,
-    primaryContainer    = tintTowardsBlack(Brand.Primary, 0.55f),
-    onPrimaryContainer  = tintTowardsWhite(Brand.Primary, 0.85f),
+private val DarkColors = darkColorScheme(
+    primary = Color(0xFF9DBBFF),
+    onPrimary = Color(0xFF062A73),
+    primaryContainer = Color(0xFF174AAB),
+    onPrimaryContainer = Color(0xFFDCE7FF),
 
-    secondary           = Brand.Secondary,
-    onSecondary         = androidx.compose.ui.graphics.Color.White,
-    secondaryContainer  = tintTowardsBlack(Brand.Secondary, 0.45f),
-    onSecondaryContainer= tintTowardsWhite(Brand.Secondary, 0.9f),
+    secondary = Color(0xFFFFA0AD),
+    onSecondary = Color(0xFF5E1523),
+    secondaryContainer = Color(0xFF762B3C),
+    onSecondaryContainer = Color(0xFFFFD9DE),
 
-    tertiary            = tintTowardsWhite(Brand.Tertiary, 0.55f),
-    onTertiary          = Brand.Tertiary,
-    tertiaryContainer   = tintTowardsBlack(Brand.Tertiary, 0.50f),
-    onTertiaryContainer = tintTowardsWhite(Brand.Tertiary, 0.85f),
+    tertiary = Color(0xFF7DDBA9),
+    onTertiary = Color(0xFF003821),
+    tertiaryContainer = Color(0xFF075B3B),
+    onTertiaryContainer = Color(0xFFA6F2C5),
 
-    error               = androidx.compose.ui.graphics.Color(0xFFF2B8B5),
-    onError             = androidx.compose.ui.graphics.Color(0xFF450E0C),
-    errorContainer      = androidx.compose.ui.graphics.Color(0xFF5C1A16),
-    onErrorContainer    = androidx.compose.ui.graphics.Color(0xFFF2B8B5),
+    error = Color(0xFFFFB4AB),
+    onError = Color(0xFF690005),
+    errorContainer = Color(0xFF93000A),
+    onErrorContainer = Color(0xFFFFDAD6),
 
-    background = androidx.compose.ui.graphics.Color(0xFF10131C),
-    onBackground = tintTowardsWhite(Brand.Primary, 0.85f),
-    surface = androidx.compose.ui.graphics.Color(0xFF171B24),
-    onSurface = tintTowardsWhite(Brand.Primary, 0.88f),
-    surfaceVariant = tintTowardsBlack(Brand.Primary, 0.22f),
-    onSurfaceVariant = tintTowardsWhite(Brand.Primary, 0.62f),
-    outline = tintTowardsWhite(Brand.Primary, 0.20f),
-    outlineVariant = tintTowardsWhite(Brand.Primary, 0.14f),
+    background = Color(0xFF0E1728),
+    onBackground = Color(0xFFE8EEF8),
+    surface = Color(0xFF14233B),
+    onSurface = Color(0xFFE8EEF8),
+    surfaceVariant = Color(0xFF24344D),
+    onSurfaceVariant = Color(0xFFB7C4D8),
+    outline = Color(0xFF8494AD),
+    outlineVariant = Color(0xFF3C4C65),
 
-    inverseSurface = tintTowardsWhite(Brand.Primary, 0.88f),
-    inverseOnSurface = Brand.Primary,
+    inverseSurface = Color(0xFFE8EEF8),
+    inverseOnSurface = Brand.Ink,
     inversePrimary = Brand.Primary
 )
 
-/** PayAlert's Material3 theme. Dynamic color is deliberately disabled — the brand palette
- * (derived from the launcher icon) is the source of truth on every device, day and night. */
+private val PayAlertTypography = Typography().copy(
+    headlineSmall = Typography().headlineSmall.copy(fontWeight = FontWeight.Bold),
+    titleLarge = Typography().titleLarge.copy(fontWeight = FontWeight.SemiBold),
+    titleMedium = Typography().titleMedium.copy(fontWeight = FontWeight.SemiBold),
+    labelLarge = Typography().labelLarge.copy(fontWeight = FontWeight.SemiBold)
+)
+
+private val PayAlertShapes = Shapes(
+    extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+    small = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
+    medium = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+    large = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
+    extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)
+)
+
+/**
+ * PayAlert's Material3 theme. Dynamic color is deliberately disabled so the financial signals
+ * remain stable across devices. The app uses the light dashboard by default; the dark scheme is
+ * retained for callers that explicitly opt into it.
+ */
 @Composable
 fun PayAlertTheme(
-    darkTheme: Boolean = androidx.compose.foundation.isSystemInDarkTheme(),
+    darkTheme: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    androidx.compose.material3.MaterialTheme(
+    MaterialTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,
-        typography = androidx.compose.material3.Typography(),
+        typography = PayAlertTypography,
+        shapes = PayAlertShapes,
         content = content
     )
 }

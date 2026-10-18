@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Compose draws the whole UI. The platform theme only needs to be a valid,
-         no-action-bar parent so no design-library dependency is required.
-         The brand palette lives in android:statusBarColor; windowBackground is the
-         off-white surface so the launch flash is on-brand. -->
+    <!-- Compose draws the whole UI. Keep the platform window aligned with the light dashboard
+         during launch and while system-owned surfaces are visible. -->
     <style name="Theme.PayAlert" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:statusBarColor">@color/payalert_primary</item>
         <item name="android:windowBackground">@color/payalert_background</item>
+        <item name="android:navigationBarColor">@color/payalert_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:colorAccent">@color/payalert_primary</item>
         <!-- OnBackInvokedCallback is required by AGP 9 SDK 34+ toolchains. The app
              only uses BackHandler in Compose, so this property is declarative, not
              behavioral; kept to silence the compat warning. -->

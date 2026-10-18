@@ -1,7 +1,6 @@
 package com.vivekray898.payalert.ui.home
 
 import androidx.activity.ComponentActivity
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,10 +14,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -35,17 +34,20 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.vivekray898.payalert.AppGraph
 import com.vivekray898.payalert.R
 import com.vivekray898.payalert.data.PaymentEvent
+import com.vivekray898.payalert.ui.components.BlueHeader
 import com.vivekray898.payalert.ui.components.EmptyState
+import com.vivekray898.payalert.ui.components.VoicePill
 import com.vivekray898.payalert.ui.components.RoleIndicator
-import com.vivekray898.payalert.ui.components.SectionCard
-import com.vivekray898.payalert.ui.components.SectionHeader
-import com.vivekray898.payalert.ui.components.StatChip
 import com.vivekray898.payalert.ui.formatAmount
 import com.vivekray898.payalert.ui.formatTimestamp
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
-/** One recent-payment row. The merchant renders exactly as stored — no case transform. */
+/** One reference-style payment row. The stored merchant renders without case transforms. */
 @Composable
 private fun RecentPaymentCard(
     event: PaymentEvent,
@@ -57,22 +59,22 @@ private fun RecentPaymentCard(
     } else {
         MaterialTheme.colorScheme.secondary
     }
-    Surface(
-        color = MaterialTheme.colorScheme.surface,
-        shape = MaterialTheme.shapes.medium,
-        modifier = modifier.fillMaxWidth()
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = MaterialTheme.shapes.extraLarge,
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(horizontal = 18.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .size(36.dp)
-                    .background(amountColor.copy(alpha = 0.12f), MaterialTheme.shapes.large),
+                    .size(42.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -86,9 +88,14 @@ private fun RecentPaymentCard(
             }
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = event.merchant ?: event.bankOrUpi ?: "Payment",
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium
+                    text = event.bankOrUpi ?: "UPI payment",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = event.merchant ?: "Payment received",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
                     text = formatTimestamp(event.receivedAt),
@@ -98,7 +105,7 @@ private fun RecentPaymentCard(
             }
             Text(
                 text = (if (credit) "+" else "\u2212") + formatAmount(event.amount),
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleLarge,
                 color = amountColor
             )
         }
@@ -109,14 +116,15 @@ private fun RecentPaymentCard(
 fun HomeScreen(
     onOpenTransactions: () -> Unit,
     onOpenQr: () -> Unit,
+    onOpenSettings: () -> Unit = {},
     role: String? = null,
     viewModel: HomeViewModel = viewModel()
 ) {
     val state by viewModel.state.collectAsState()
     val monitoring by viewModel.monitoring.collectAsState()
 
-    // Permission grants happen in system Settings, so re-read state whenever we come back.
     val context = LocalContext.current
+    val graph = androidx.compose.runtime.remember { AppGraph.get(context) }
     DisposableEffect(context) {
         val activity = context as? ComponentActivity
         if (activity == null) {
@@ -131,69 +139,79 @@ fun HomeScreen(
     }
 
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(vertical = 16.dp)
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(bottom = 28.dp)
     ) {
         item {
+            BlueHeader(title = "All Entries") {
+                VoicePill(onClick = { graph.tts.speak("PayAlert voice is ready.") })
+            }
+        }
+
+        item {
+            CollectionCard(
+                label = "This month's collection",
+                amount = formatAmount(state.monthIn),
+                date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+            )
+        }
+
+        if (!monitoring || !state.notificationAccess) {
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = MaterialTheme.shapes.extraLarge,
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_warning),
+                            contentDescription = "Attention needed",
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(34.dp)
+                        )
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "Soundbox not working",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.secondary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                "Tap to enable required permissions",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        TextButton(onClick = onOpenSettings) { Text("Fix now") }
+                    }
+                }
+            }
+        }
+
+        item {
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "PayAlert",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = MaterialTheme.colorScheme.primary
+                    text = "UPI Transactions",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
                 )
-                // Always visible so the user can never be unsure which mode this phone is in.
-                RoleIndicator(role)
+                TextButton(onClick = onOpenTransactions) { Text("View all") }
             }
-        }
-
-        // This-month totals. Net is the headline figure; the two components are chips.
-        item {
-            SectionCard(title = "This month") {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    StatChip("In", formatAmount(state.monthIn), MaterialTheme.colorScheme.tertiary)
-                    StatChip("Out", formatAmount(state.monthOut), MaterialTheme.colorScheme.secondary)
-                }
-                Column(modifier = Modifier.padding(top = 12.dp)) {
-                    Text(
-                        text = "Net",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = formatAmount(state.monthIn - state.monthOut),
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-        }
-
-        // Ranked actions: the primary destination is filled, the utility is outlined.
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = onOpenTransactions,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Transactions")
-                }
-                OutlinedButton(
-                    onClick = onOpenQr,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Payment QR")
-                }
-            }
-        }
-
-        item {
-            SectionHeader(title = "Recent payments")
         }
 
         if (state.recent.isEmpty()) {
@@ -201,7 +219,7 @@ fun HomeScreen(
                 EmptyState(
                     icon = R.drawable.ic_receipt,
                     title = "No payments yet",
-                    description = "Grant monitoring, SMS and notification access in Settings → Permissions, then pay with any app or receive a bank SMS — detections show up here.",
+                    description = "Grant notification access in Settings, then payments will appear here automatically.",
                     action = {
                         TextButton(onClick = viewModel::refresh) {
                             Text("Refresh")
@@ -210,15 +228,53 @@ fun HomeScreen(
                 )
             }
         } else {
-            items(state.recent, key = { it.id }) { event ->
-                RecentPaymentCard(event = event)
+            items(state.recent.take(6), key = { it.id }) { event ->
+                RecentPaymentCard(
+                    event = event,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
             }
         }
 
         item {
-            Spacer(modifier = Modifier.height(8.dp))
-            TextButton(onClick = viewModel::refresh) {
-                Text("Refresh")
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.End
+            ) {
+                TextButton(onClick = onOpenQr) { Text("Create payment QR") }
+                TextButton(onClick = viewModel::refresh) { Text("Refresh") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CollectionCard(label: String, amount: String, date: String) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = MaterialTheme.shapes.extraLarge,
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
+            Text(date, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(label, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                Text(
+                    text = "₹$amount",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }

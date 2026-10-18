@@ -1,39 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Brand palette, extracted from the launcher icon
-         (app/src/main/ic_launcher-playstore.png) and sampled with PIL.
-         Method: nearest-neighbour clustering of every non-background pixel to four
-         seed colours, then the modal saturated pixel per cluster.
-         Source: navy #122550, orange #F65026, teal #058E7A, gold #FEAD15. -->
-
-    <color name="payalert_primary">#122550</color>
-    <color name="payalert_primary_variant">#0B1A39</color>
+    <!-- Platform-window companions to the Compose finance-dashboard palette. -->
+    <color name="payalert_primary">#1B63E8</color>
+    <color name="payalert_primary_variant">#0F4DB8</color>
     <color name="payalert_on_primary">#FFFFFF</color>
-    <color name="payalert_secondary">#F65026</color>
+    <color name="payalert_secondary">#C83F52</color>
     <color name="payalert_on_secondary">#FFFFFF</color>
-    <color name="payalert_tertiary">#058E7A</color>
+    <color name="payalert_tertiary">#087A4D</color>
     <color name="payalert_on_tertiary">#FFFFFF</color>
-    <color name="payalert_accent">#FE8D13</color>
-    <color name="payalert_background">#FAFAFA</color>
-    <color name="payalert_on_background">#122550</color>
+    <color name="payalert_accent">#5E4AE3</color>
+    <color name="payalert_background">#F4F7FB</color>
+    <color name="payalert_on_background">#12213F</color>
     <color name="payalert_surface">#FFFFFF</color>
-    <color name="payalert_on_surface">#122550</color>
+    <color name="payalert_on_surface">#12213F</color>
 
-    <!-- Status colours used by the existing colophon colour attribute, kept using the
-         brand mapping: green for healthy, orange for warning, red for error. -->
-    <color name="payalert_status_ok">#058E7A</color>
-    <color name="payalert_status_warn">#F65026</color>
-    <color name="payalert_status_error">#B3261E</color>
+    <!-- Status colours used by the existing platform and Compose status indicators. -->
+    <color name="payalert_status_ok">#087A4D</color>
+    <color name="payalert_status_warn">#A56A00</color>
+    <color name="payalert_status_error">#C83F52</color>
 
     <!-- Material dark-colour overlays used by the platform theme only (Compose is the UI). -->
-    <color name="payalert_primary_light">#6F68A8</color>
+    <color name="payalert_primary_light">#9DBBFF</color>
 
-    <!-- Legacy colophon colours referenced by res/values/strings & analytics; kept but remapped. -->
-    <color name="payalert_good">#058E7A</color>
-    <color name="payalert_warn">#F65026</color>
-    <color name="payalert_bad">#B3261E</color>
-    <color name="payalert_light">#FAFAFA</color>
-    <color name="payalert_dark">#122550</color>
-    <color name="payalert_mid">#058E7A</color>
-    <color name="payalert_gold">#FE8D13</color>
+    <!-- Legacy resource names retained for existing platform-only callers. -->
+    <color name="payalert_good">#087A4D</color>
+    <color name="payalert_warn">#A56A00</color>
+    <color name="payalert_bad">#C83F52</color>
+    <color name="payalert_light">#F4F7FB</color>
+    <color name="payalert_dark">#12213F</color>
+    <color name="payalert_mid">#087A4D</color>
+    <color name="payalert_gold">#5E4AE3</color>
 </resources>

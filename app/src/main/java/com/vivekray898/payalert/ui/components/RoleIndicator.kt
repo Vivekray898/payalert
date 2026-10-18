@@ -32,8 +32,8 @@ fun RoleIndicator(
     val label = roleDisplayName(role) ?: return
     Surface(
         modifier = modifier.semantics { contentDescription = "Role: $label" },
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         shape = MaterialTheme.shapes.small
     ) {
         Text(

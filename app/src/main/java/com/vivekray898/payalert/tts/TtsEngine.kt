@@ -221,10 +221,11 @@ class TtsEngine(
         reason: String
     ) {
         synchronized(stateLock) {
-            if (shutDown || text.isBlank()) return
+            val speechText = SpeechTextNormalizer.forSpeech(text)
+            if (shutDown || speechText.isBlank()) return
             logTransition("speech_requested", mode, preview, "reason=$reason")
             ensureInitializedLocked()
-            val pending = PendingSpeech(text, preview, mode)
+            val pending = PendingSpeech(speechText, preview, mode)
             if (_ready.value) {
                 speakNowLocked(pending)
             } else {

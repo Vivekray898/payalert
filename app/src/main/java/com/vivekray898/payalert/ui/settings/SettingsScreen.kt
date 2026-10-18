@@ -6,6 +6,7 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -15,11 +16,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -53,11 +57,13 @@ import com.vivekray898.payalert.role.DeviceRoleSnapshot
 import com.vivekray898.payalert.role.LocalDeviceRole
 import com.vivekray898.payalert.ui.PermissionStatus
 import com.vivekray898.payalert.ui.components.RoleIndicator
+import com.vivekray898.payalert.ui.components.BlueHeader
 import com.vivekray898.payalert.ui.components.SectionCard
 import com.vivekray898.payalert.ui.components.SliderRow
 import com.vivekray898.payalert.ui.components.StatusOkColor
 import com.vivekray898.payalert.ui.components.StatusWarnColor
 import com.vivekray898.payalert.ui.components.SwitchRow
+import com.vivekray898.payalert.ui.components.VoicePill
 import com.vivekray898.payalert.onboarding.OnboardingRepository
 import com.vivekray898.payalert.onboarding.OnboardingStep
 import com.vivekray898.payalert.ui.components.ValueRow
@@ -124,18 +130,56 @@ fun SettingsScreen(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp)
-                // The Scaffold's bottom bar occupies the bottom ~96 dp of the content
-                // area. Without this the last interactive row (Reset all settings) sits
-                // underneath the bar and is not tappable.
-                .padding(bottom = 96.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .background(MaterialTheme.colorScheme.background)
+            // The NavigationBar occupies the bottom of the content area; preserve a generous
+            // scroll tail so the last action never sits under it.
+            .padding(bottom = 112.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Text(
-            text = "Settings",
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.primary
-        )
+        BlueHeader(title = "Settings") {
+            VoicePill(onClick = { graph.tts.speak("PayAlert voice is ready.") })
+            androidx.compose.material3.TextButton(onClick = { showLanguageDialog = true }) {
+                Text("अ  A", color = MaterialTheme.colorScheme.onPrimary)
+            }
+        }
+
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = MaterialTheme.shapes.extraLarge,
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                androidx.compose.foundation.layout.Box(
+                    modifier = Modifier
+                        .size(58.dp)
+                        .background(MaterialTheme.colorScheme.primary, MaterialTheme.shapes.extraLarge),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_settings),
+                        contentDescription = "Device profile",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(30.dp)
+                    )
+                }
+                Column(Modifier.weight(1f)) {
+                    Text("This device", style = MaterialTheme.typography.titleLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                    Text(
+                        role.badgeValue ?: "Owner device",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                RoleIndicator(role.badgeValue)
+            }
+        }
 
         SectionCard(title = "Team & devices") {
             Text("Connect owner and employee phones with a private, single-use pairing code.")

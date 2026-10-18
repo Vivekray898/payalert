@@ -1,6 +1,7 @@
 package com.vivekray898.payalert.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -8,16 +9,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -27,6 +32,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.vivekray898.payalert.R
@@ -54,7 +61,9 @@ fun PayAlertApp(
 ) {
     var tabIndex by rememberSaveable { mutableStateOf(0) }
     var overlayName by rememberSaveable { mutableStateOf<String?>(null) }
+    var moreExpanded by rememberSaveable { mutableStateOf(false) }
     val overlay = overlayName?.let { OverlayRegistry.byName(it) }
+    val selectedTab = Tab.all.getOrNull(tabIndex) ?: Tab.HOME
     val role by pairing.role.collectAsState()
     val relay by pairing.relay.collectAsState()
     // Only a state the user can act on becomes a banner; a failed delivery retries on its own.
@@ -69,11 +78,17 @@ fun PayAlertApp(
     }
 
     fun open(target: Overlay) {
+        moreExpanded = false
         overlayName = OverlayRegistry.nameOf(target)
     }
 
     fun close() {
+        val closingQr = overlay == Overlay.Qr
         overlayName = null
+        moreExpanded = false
+        // QR is a primary action implemented by the existing overlay. Returning from it lands
+        // on Home rather than leaving an empty QR tab selected underneath the closed overlay.
+        if (closingQr) tabIndex = Tab.HOME.ordinal
     }
 
     if (overlay != null) {
@@ -81,15 +96,27 @@ fun PayAlertApp(
     }
 
     Scaffold(
+        // Keep the status-bar region in the same blue as the reference header while the
+        // padded content area below remains the light dashboard canvas.
+        containerColor = MaterialTheme.colorScheme.primary,
         bottomBar = {
-            NavigationBar {
+            NavigationBar(
+                containerColor = MaterialTheme.colorScheme.surface,
+                tonalElevation = 4.dp
+            ) {
                 Tab.all.forEachIndexed { position, tab ->
                     NavigationBarItem(
-                        selected = tabIndex == position,
+                        selected = selectedTab == tab,
                         onClick = {
-                            // Choosing a tab also leaves any secondary screen that was open.
-                            close()
-                            tabIndex = position
+                            if (tab == Tab.QR) {
+                                close()
+                                tabIndex = position
+                                open(Overlay.Qr)
+                            } else {
+                                // Choosing a tab also leaves any secondary screen that was open.
+                                close()
+                                tabIndex = position
+                            }
                         },
                         icon = {
                             Icon(
@@ -98,50 +125,118 @@ fun PayAlertApp(
                             )
                         },
                         label = { Text(tab.label) },
-                        // The indicator and the selected label both derive from the icon's
-                        // teal, so the pill never reads as an unrelated pale green.
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.tertiary,
-                            selectedTextColor = MaterialTheme.colorScheme.tertiary,
-                            indicatorColor = MaterialTheme.colorScheme.tertiaryContainer,
+                            selectedIconColor = MaterialTheme.colorScheme.primary,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
                             unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                             unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     )
+                }
+
+                // Secondary destinations stay one tap away without competing with the four
+                // primary tabs for attention.
+                Box(
+                    modifier = Modifier.weight(0.72f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    androidx.compose.material3.IconButton(
+                        modifier = Modifier.semantics {
+                            stateDescription = if (moreExpanded) "Expanded" else "Collapsed"
+                        },
+                        onClick = { moreExpanded = true }
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_more_vert),
+                            contentDescription = "More tools"
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = moreExpanded,
+                        onDismissRequest = { moreExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Cashbook") },
+                            onClick = { open(Overlay.Cashbook) },
+                            leadingIcon = {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_cashbook),
+                                    contentDescription = null
+                                )
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Upcoming payments") },
+                            onClick = { open(Overlay.Upcoming) },
+                            leadingIcon = {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_upcoming),
+                                    contentDescription = null
+                                )
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Analytics") },
+                            onClick = { open(Overlay.Analytics) },
+                            leadingIcon = {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_chart),
+                                    contentDescription = null
+                                )
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Team & devices") },
+                            onClick = { open(Overlay.Team) },
+                            leadingIcon = {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_settings),
+                                    contentDescription = null
+                                )
+                            }
+                        )
+                    }
                 }
             }
         }
     ) { padding ->
         // The tab content stays composed underneath, so scroll position and open dialogs
         // survive a trip into a secondary screen and back.
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                // The outer Scaffold owns the system-bar placement for tab content. Mark those
-                // insets consumed before a tab with its own TopAppBar Scaffold is composed, so
-                // the status-bar inset is not applied a second time.
-                .consumeWindowInsets(padding)
-                // Reserve room for the notices so they never hide the last card on a screen
-                // (or the export action at the foot of Analytics).
-                .padding(bottom = when {
-                    healthNotice != null && pairingNotice != null -> 128.dp
-                    healthNotice != null || pairingNotice != null -> 72.dp
-                    else -> 0.dp
-                })
-        ) {
-            when (Tab.all[tabIndex]) {
+        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .background(MaterialTheme.colorScheme.background)
+                    // The outer Scaffold owns the system-bar placement for tab content. Mark those
+                    // insets consumed before a tab with its own TopAppBar Scaffold is composed, so
+                    // the status-bar inset is not applied a second time.
+                    .consumeWindowInsets(padding)
+                    // Reserve room for the notices so they never hide the last card on a screen
+                    // (or the export action at the foot of Analytics).
+                    .padding(bottom = when {
+                        healthNotice != null && pairingNotice != null -> 128.dp
+                        healthNotice != null || pairingNotice != null -> 72.dp
+                        else -> 0.dp
+                    })
+            ) {
+            when (selectedTab) {
                 Tab.HOME -> HomeScreen(
-                    onOpenTransactions = { tabIndex = Tab.TRANSACTIONS.ordinal },
+                    onOpenTransactions = { tabIndex = Tab.PASSBOOK.ordinal },
                     onOpenQr = { open(Overlay.Qr) },
+                    onOpenSettings = { tabIndex = Tab.SETTINGS.ordinal },
                     role = role.badgeValue
                 )
-                Tab.TRANSACTIONS -> TransactionsScreen(
+                Tab.PASSBOOK -> TransactionsScreen(
                     onOpenAnalytics = { open(Overlay.Analytics) },
                     role = role.badgeValue
                 )
-                Tab.CASHBOOK -> CashbookScreen()
-                Tab.PASSBOOK -> PassbookScreen()
+                Tab.QR -> if (overlay == null) {
+                    // A direct fallback keeps the saved route usable if the process restores the
+                    // tab before the overlay state. Normal navigation always uses the overlay.
+                    QrScreen(onBack = { tabIndex = Tab.HOME.ordinal })
+                }
                 Tab.SETTINGS -> SettingsScreen(
                     onOpenDiagnostics = { open(Overlay.Diagnostics) },
                     onOpenFaq = { open(Overlay.Faq) },
@@ -157,12 +252,14 @@ fun PayAlertApp(
                 Surface(modifier = Modifier.fillMaxSize()) {
                     when (overlay) {
                         Overlay.Analytics -> AnalyticsScreen(onBack = ::close)
+                        Overlay.Cashbook -> CashbookScreen()
                         Overlay.Diagnostics -> DiagnosticsScreen(onBack = ::close)
                         Overlay.Faq -> FaqScreen(onBack = ::close)
                         Overlay.Terms -> TermsScreen(onBack = ::close)
                         Overlay.Qr -> QrScreen(onBack = ::close)
                         Overlay.Backup -> BackupScreen(onBack = ::close)
                         Overlay.Team -> TeamScreen(onBack = ::close)
+                        Overlay.Upcoming -> PassbookScreen()
                     }
                 }
             }
@@ -191,6 +288,7 @@ fun PayAlertApp(
                         .align(Alignment.BottomCenter)
                         .padding(bottom = if (healthNotice != null) 56.dp else 0.dp)
                 )
+            }
             }
         }
     }
@@ -231,9 +329,8 @@ private fun NoticeBanner(
 /** Maps a tab to its icon. Kept here so the nav enum stays free of Android resource ids. */
 private fun tabIcon(tab: Tab): Int = when (tab) {
     Tab.HOME -> R.drawable.ic_home
-    Tab.TRANSACTIONS -> R.drawable.ic_history
-    Tab.CASHBOOK -> R.drawable.ic_cashbook
-    Tab.PASSBOOK -> R.drawable.ic_upcoming
+    Tab.PASSBOOK -> R.drawable.ic_history
+    Tab.QR -> R.drawable.ic_qr_code
     Tab.SETTINGS -> R.drawable.ic_settings
 }
 
@@ -241,12 +338,14 @@ private fun tabIcon(tab: Tab): Int = when (tab) {
 private object OverlayRegistry {
     private val all = listOf(
         Overlay.Analytics,
+        Overlay.Cashbook,
         Overlay.Diagnostics,
         Overlay.Faq,
         Overlay.Terms,
         Overlay.Qr,
         Overlay.Backup,
-        Overlay.Team
+        Overlay.Team,
+        Overlay.Upcoming
     )
 
     fun nameOf(overlay: Overlay): String = overlay::class.simpleName ?: "Unknown"
