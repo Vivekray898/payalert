@@ -35,11 +35,12 @@ class PaymentPipelineTest {
     private fun pipeline(
         store: PaymentStore,
         announcements: MutableList<String> = CopyOnWriteArrayList(),
+        settings: () -> SettingsSnapshot = { SettingsSnapshot() },
         localRole: () -> LocalDeviceRole = { LocalDeviceRole.OWNER }
     ) = PaymentPipeline(
         store = store,
         parser = parser,
-        settings = { SettingsSnapshot() },
+        settings = settings,
         tts = { announcements.add(it) },
         localRole = localRole
     )
@@ -101,6 +102,45 @@ class PaymentPipelineTest {
         assertEquals(ParseOutcome.ACCEPTED, outcome.reason)
         assertEquals(1, store.eventCount())
         assertEquals(1, announcements.size)
+    }
+
+    @Test
+    fun `notifications stay active when sms is disabled and selected payment apps remain enabled`() = runBlocking {
+        val store = FakePaymentStore()
+        val announcements = CopyOnWriteArrayList<String>()
+        val selectedApps = setOf(
+            "com.google.android.apps.nbu.paisa.user",
+            "com.kotak811mobilebankingapp.instantsavingsupiscanandpayrecharge"
+        )
+        val pipeline = pipeline(
+            store = store,
+            announcements = announcements,
+            settings = {
+                SettingsSnapshot(
+                    detectSms = false,
+                    detectNotifications = true,
+                    notificationPackageAllowlist = selectedApps
+                )
+            }
+        )
+
+        val googlePay = pipeline.handle(
+            "Mr RAHUL SHARMA paid you ₹50.00",
+            "notification",
+            "com.google.android.apps.nbu.paisa.user",
+            baseNow
+        )
+        val kotak811 = pipeline.handle(
+            "₹75.00 received from PRIYA SHARMA",
+            "notification",
+            "com.kotak811mobilebankingapp.instantsavingsupiscanandpayrecharge",
+            baseNow + 1_000
+        )
+
+        assertEquals(ParseOutcome.ACCEPTED, googlePay.reason)
+        assertEquals(ParseOutcome.ACCEPTED, kotak811.reason)
+        assertEquals(2, store.eventCount())
+        assertEquals(2, announcements.size)
     }
 
     @Test

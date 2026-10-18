@@ -43,4 +43,32 @@ class NotificationTextExtractorTest {
 
         assertEquals("Received Rs 10 from BIPUL SAHA", text)
     }
+
+    @Test
+    fun `transaction title wins over generic action body when parser accepts it`() {
+        val text = NotificationTextExtractor.choose(
+            title = "Received Rs 50 from RAHUL SHARMA",
+            text = "Tap to view",
+            bigText = null,
+            subText = null,
+            summaryText = null,
+            isPaymentCandidate = { candidate -> candidate.startsWith("Received Rs") }
+        )
+
+        assertEquals("Received Rs 50 from RAHUL SHARMA", text)
+    }
+
+    @Test
+    fun `generic body remains the fallback when no field is parseable`() {
+        val text = NotificationTextExtractor.choose(
+            title = "Google Pay",
+            text = "Tap to view",
+            bigText = null,
+            subText = null,
+            summaryText = null,
+            isPaymentCandidate = { false }
+        )
+
+        assertEquals("Tap to view", text)
+    }
 }
