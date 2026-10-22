@@ -70,6 +70,37 @@ class TeamControllerTest {
         assertEquals("owner-device", controller.state.value.team?.owner?.deviceId)
     }
 
+    @Test fun `a recent snapshot read is reused instead of asking the server again`() = runTest {
+        val repo = FakeRepository()
+        var now = 1_700_000_000_000L
+        val controller = TeamController(repo, backgroundScope, "Employee phone", clock = { now })
+        runCurrent()
+        val loadsAfterStart = repo.loads.size
+
+        // The relay pump runs every ten seconds on an employee device, and the pairing it needs
+        // does not change between refreshes.
+        assertTrue(controller.refreshNow(maxAgeMillis = 60_000L))
+        assertTrue(controller.refreshNow(maxAgeMillis = 60_000L))
+        assertEquals(loadsAfterStart, repo.loads.size)
+
+        // Once the read is stale the server is asked again.
+        now += 60_001L
+        assertTrue(controller.refreshNow(maxAgeMillis = 60_000L))
+        assertEquals(loadsAfterStart + 1, repo.loads.size)
+    }
+
+    @Test fun `an explicit refresh always reads from the server`() = runTest {
+        val repo = FakeRepository()
+        var now = 1_700_000_000_000L
+        val controller = TeamController(repo, backgroundScope, "Employee phone", clock = { now })
+        runCurrent()
+        val loadsAfterStart = repo.loads.size
+
+        controller.refreshNow()
+        controller.refreshNow()
+        assertEquals(loadsAfterStart + 2, repo.loads.size)
+    }
+
     @Test fun `unconfigured build performs no network action`() = runTest {
         val repo = FakeRepository(configured = false)
         repo.account.value = null

@@ -8,6 +8,7 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.vivekray898.payalert.services.PaymentMonitorService
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 
@@ -24,8 +25,19 @@ class RelayPumpWorker(
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = try {
-        com.vivekray898.payalert.AppGraph.get(applicationContext).runRelayPump()
-        Result.success()
+        // The foreground monitor/employee relay already owns the fast loop. Do not wake a second
+        // scheduler every fifteen minutes while one of those services is alive.
+        if (PaymentMonitorService.isRunning || EmployeeRealtimeService.isRunning) {
+            Result.success()
+        } else {
+            val graph = com.vivekray898.payalert.AppGraph.get(applicationContext)
+            val delivered = graph.runRelayPump()
+            if (!delivered && graph.team.configured && graph.team.account.value != null) {
+                Result.retry()
+            } else {
+                Result.success()
+            }
+        }
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (_: Exception) {

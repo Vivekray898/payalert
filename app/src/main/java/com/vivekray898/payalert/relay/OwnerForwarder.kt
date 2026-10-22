@@ -72,7 +72,7 @@ class OwnerForwarder(
             queued++
 
             // Log the enqueue event for latency measurement
-            android.util.Log.i("PayAlertRelay", "owner_enqueued message_id=$messageId t=$now")
+            android.util.Log.i(RELAY_TAG, "owner_enqueued message_id=$messageId t=$now")
         }
         return queued
     }
@@ -195,6 +195,13 @@ class OwnerForwarder(
                 envelope = envelope,
                 ttlSeconds = ENVELOPE_TTL_SECONDS
             )
+            // The server accepted the envelope. Together with the employee's
+            // "employee_fetched" line for the same message id, this brackets the
+            // part of the delay that the relay server is responsible for.
+            android.util.Log.i(
+                RELAY_TAG,
+                "owner_sent message_id=${row.messageId} t=${System.currentTimeMillis()}"
+            )
             SendResult.DELIVERED
         } catch (notBound: RelayKeyNotBoundException) {
             SendResult.KEY_NOT_BOUND
@@ -250,6 +257,9 @@ class OwnerForwarder(
 
     companion object {
         private const val TAG = "PayAlert"
+
+        /** Log tag for the latency trail shared with the employee device. */
+        private const val RELAY_TAG = "PayAlertRelay"
         private const val MAX_PER_FLUSH = 20
 
         /** Matches the server default so an undelivered envelope expires on both sides together. */

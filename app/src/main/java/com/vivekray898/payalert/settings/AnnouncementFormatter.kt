@@ -12,7 +12,7 @@ import java.util.Locale
  */
 object AnnouncementFormatter {
 
-    const val DEFAULT_CREDIT_TEMPLATE = "Payment received. {amount} from {merchant}."
+    const val DEFAULT_CREDIT_TEMPLATE = "Payment received {amount} in your bank account."
     const val DEFAULT_DEBIT_TEMPLATE = "Payment sent. {amount} to {merchant}."
 
     /** Assumed when an event carries no currency of its own. */

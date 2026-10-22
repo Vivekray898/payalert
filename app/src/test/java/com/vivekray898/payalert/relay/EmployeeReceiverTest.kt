@@ -22,11 +22,11 @@ class EmployeeReceiverTest {
         assertEquals(1, result.announced)
         assertFalse(result.needsRepair)
         assertEquals(
-            listOf("Payment received. 750 rupees from Suresh."),
+            listOf("Payment received 750 rupees in your bank account."),
             fakes.announcements
         )
         assertEquals(
-            listOf("msg-1" to "Payment received. 750 rupees from Suresh."),
+            listOf("msg-1" to "Payment received 750 rupees in your bank account."),
             fakes.notifications
         )
         val row = fakes.received.rows.getValue("msg-1")
@@ -110,20 +110,27 @@ class EmployeeReceiverTest {
         fakes.peerKeys.store(
             RelayPeerKeyInfo(OWNER, fakes.ownerKeys.keyId, misregistered.publicKey.encoded)
         )
+        fakes.transport.peerKeys[OWNER] = RelayPeerKeyInfo(
+            OWNER,
+            fakes.ownerKeys.keyId,
+            misregistered.publicKey.encoded
+        )
         fakes.transport.inbox += fakes.inboxMessage("msg-5", amount = 640.0, merchant = "Ravi")
         fakes.receiver.receive(context())
         assertTrue(fakes.announcements.isEmpty())
 
         // The correct owner key becomes available again, e.g. after the devices re-pair.
-        fakes.peerKeys.store(
-            RelayPeerKeyInfo(OWNER, fakes.ownerKeys.keyId, fakes.ownerKeys.publicKey.encoded)
+        fakes.transport.peerKeys[OWNER] = RelayPeerKeyInfo(
+            OWNER,
+            fakes.ownerKeys.keyId,
+            fakes.ownerKeys.publicKey.encoded
         )
         fakes.transport.inbox.clear()
         val result = fakes.receiver.receive(context())
 
         assertEquals(1, result.imported)
         assertEquals(1, result.announced)
-        assertEquals("Payment received. 640 rupees from Ravi.", fakes.announcements.single())
+        assertEquals("Payment received 640 rupees in your bank account.", fakes.announcements.single())
         val row = fakes.received.rows.getValue("msg-5")
         assertEquals(640.0, requireNotNull(row.amount), 0.001)
         assertFalse(row.decryptFailed)
@@ -143,7 +150,7 @@ class EmployeeReceiverTest {
         assertEquals(1, result.imported)
         assertEquals(1, result.announced)
         assertTrue(result.needsRepair)
-        assertEquals("Payment received. 20 rupees from Good.", fakes.announcements.single())
+        assertEquals("Payment received 20 rupees in your bank account.", fakes.announcements.single())
     }
 
     @Test
@@ -177,6 +184,43 @@ class EmployeeReceiverTest {
         assertTrue(fakes.received.rows.isEmpty())
     }
 
+    @Test
+    fun `a temporary owner key lookup failure is left for the relay retry loop`() = runTest {
+        val fakes = Fakes()
+        fakes.prepare()
+        fakes.peerKeyDao.clear()
+        fakes.transport.peerKeys.clear()
+        fakes.transport.peerKeyFailure = RelayTransportException("offline")
+
+        var threwTransportError = false
+        try {
+            fakes.receiver.receive(context())
+        } catch (_: RelayTransportException) {
+            threwTransportError = true
+        }
+
+        assertTrue(threwTransportError)
+        assertTrue(fakes.received.rows.isEmpty())
+    }
+
+    @Test
+    fun `every message in a batch is announced before any of them is acknowledged`() = runTest {
+        val fakes = Fakes()
+        fakes.prepare()
+        fakes.transport.inbox += fakes.inboxMessage("msg-11", amount = 100.0, merchant = "One")
+        fakes.transport.inbox += fakes.inboxMessage("msg-12", amount = 200.0, merchant = "Two")
+        fakes.transport.inbox += fakes.inboxMessage("msg-13", amount = 300.0, merchant = "Three")
+
+        val result = fakes.receiver.receive(context())
+
+        assertEquals(3, result.announced)
+        assertEquals(3, result.acknowledged)
+        // An acknowledgement is a network round trip. Doing it inline put one round trip
+        // between the announcement of every message and the announcement of the next one.
+        assertEquals(listOf(0, 0, 0), fakes.acksWhenAnnounced)
+        assertEquals(3, fakes.transport.acks.size)
+    }
+
     private fun context() = RelayPairingContext(
         role = LocalDeviceRole.EMPLOYEE,
         localDeviceId = EMPLOYEE,
@@ -198,13 +242,19 @@ class EmployeeReceiverTest {
         val announcements = mutableListOf<String>()
         val notifications = mutableListOf<Pair<String, String>>()
 
+        /** How many acknowledgements had been sent when each announcement was made. */
+        val acksWhenAnnounced = mutableListOf<Int>()
+
         val receiver = EmployeeReceiver(
             transport = transport,
             identity = identity,
             peerKeys = peerKeys,
             received = received,
             announcementTemplate = { "" },
-            announce = { announcements += it },
+            announce = {
+                announcements += it
+                acksWhenAnnounced += transport.acks.size
+            },
             clock = { now },
             notify = { messageId, text -> notifications += messageId to text }
         )

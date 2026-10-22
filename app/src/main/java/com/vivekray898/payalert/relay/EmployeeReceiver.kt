@@ -43,10 +43,22 @@ class EmployeeReceiver(
         val owner = context.owner
         if (!transport.configured || !context.canReceive || owner == null) return RelayReceiveResult()
         val keyPair = identity.publish() ?: return RelayReceiveResult(needsRepair = true)
-        val ownerKey = resolveOwnerKey(owner.deviceId)
+        var ownerKey = resolveOwnerKey(owner.deviceId)
             ?: return RelayReceiveResult(needsRepair = true)
 
-        val recovered = recoverRetained(context, keyPair, ownerKey)
+        var refreshedOwnerKey = false
+        suspend fun refreshOwnerKey(): RelayPublicKey? {
+            if (refreshedOwnerKey) return ownerKey
+            refreshedOwnerKey = true
+            return resolveOwnerKey(owner.deviceId, forceRefresh = true)?.also { ownerKey = it }
+        }
+
+        var recovered = recoverRetained(context, keyPair, ownerKey)
+        if (recovered.needsRepair) {
+            // A key rotation invalidates the server binding while this device can still have the
+            // old public key cached. Refresh once before asking the user to pair again.
+            refreshOwnerKey()?.let { recovered = recoverRetained(context, keyPair, it) }
+        }
         val now = clock()
         val messages = transport.fetch(FETCH_LIMIT)
         var imported = 0
@@ -54,12 +66,23 @@ class EmployeeReceiver(
         var unreadable = 0
         var acknowledged = 0
         var needsRepair = false
+        // Acknowledgements are collected and sent once the whole batch has been announced. An ack
+        // is a network round trip, and doing it inline put one round trip between the
+        // announcement of every message and the announcement of the next one in the batch.
+        val pendingAcks = ArrayList<Pair<String, String>>(messages.size)
         for (message in messages) {
             if (received.byMessageId(message.messageId) == null) {
-                // Log when we receive a relay message for latency measurement
-                android.util.Log.i("PayAlertRelay", "employee_ws_received message_id=${message.messageId} t=${now}")
+                // Log when the envelope is claimed, so the delay before it is announced is
+                // measurable on the device.
+                android.util.Log.i(RELAY_TAG, "employee_fetched message_id=${message.messageId} t=${now}")
 
-                val payload = decrypt(message, keyPair, ownerKey, context)
+                var payload = decrypt(message, keyPair, ownerKey, context)
+                if (payload == null) {
+                    // Do not turn a stale cached key into a permanent re-pair loop. A single fresh
+                    // server lookup is enough to recover after the owner reinstalls or rotates its
+                    // relay identity, while malformed ciphertext still remains unreadable.
+                    refreshOwnerKey()?.let { payload = decrypt(message, keyPair, it, context) }
+                }
                 if (payload == null) {
                     // Keep the ciphertext so a re-pair can still recover this payment, but store no
                     // payment detail and never guess at the contents.
@@ -85,17 +108,27 @@ class EmployeeReceiver(
                     received.insert(pending(message, context, owner, payload, now))
                     imported++
                     if (received.claimForAnnouncement(message.messageId, now, now) == 1) {
-                        // Log the announcement for latency measurement
                         val announceText = RelayAnnouncement.format(announcementTemplate(), payload)
-                        android.util.Log.i("PayAlertRelay", "employee_announced message_id=${message.messageId} t=${now} text=$announceText")
+                        val announcedAt = clock()
+                        android.util.Log.i(
+                            RELAY_TAG,
+                            "employee_announced message_id=${message.messageId} t=${announcedAt} " +
+                                "fetch_to_announce_ms=${announcedAt - now} text=$announceText"
+                        )
                         notify(message.messageId, announceText)
                         announce(announceText)
                         announced++
                     }
                 }
             }
-            // One broken envelope must not strand the rest of the batch.
-            if (transport.ack(message.serverMessageId, message.leaseToken)) acknowledged++
+            // The acknowledgement is queued, not sent. See the batch release below.
+            pendingAcks += message.serverMessageId to message.leaseToken
+        }
+        // One broken envelope must not strand the rest of the batch. The acknowledgements run
+        // after every message in the batch has already been announced, so a slow ack can no
+        // longer delay the announcement of a later message.
+        for ((serverMessageId, leaseToken) in pendingAcks) {
+            if (transport.ack(serverMessageId, leaseToken)) acknowledged++
         }
         return RelayReceiveResult(
             imported = imported + recovered.imported,
@@ -116,8 +149,13 @@ class EmployeeReceiver(
         val now = clock()
         var imported = 0
         var announced = 0
+        var hadFailures = false
         for (row in received.unreadable(now, RECOVER_LIMIT)) {
-            val payload = decryptFields(row.envelope, keyPair, ownerKey, context, row.messageId) ?: continue
+            val payload = decryptFields(row.envelope, keyPair, ownerKey, context, row.messageId)
+            if (payload == null) {
+                hadFailures = true
+                continue
+            }
             received.delete(row.messageId)
             received.insert(
                 ReceivedAnnouncement(
@@ -145,7 +183,11 @@ class EmployeeReceiver(
                 announced++
             }
         }
-        return RelayReceiveResult(imported = imported, announced = announced)
+        return RelayReceiveResult(
+            imported = imported,
+            announced = announced,
+            needsRepair = hadFailures
+        )
     }
 
     private fun pending(
@@ -170,15 +212,15 @@ class EmployeeReceiver(
         updatedAt = now
     )
 
-    private suspend fun resolveOwnerKey(ownerDeviceId: String): RelayPublicKey? {
-        val info = peerKeys.resolve(ownerDeviceId) {
-            try {
-                transport.peerKey()
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                null
-            }
+    private suspend fun resolveOwnerKey(
+        ownerDeviceId: String,
+        forceRefresh: Boolean = false
+    ): RelayPublicKey? {
+        val fetch: suspend () -> RelayPeerKeyInfo? = { transport.peerKey() }
+        val info = if (forceRefresh) {
+            peerKeys.refresh(ownerDeviceId, fetch)
+        } else {
+            peerKeys.resolve(ownerDeviceId, fetch)
         } ?: return null
         val parsed = try {
             RelayCrypto.parsePublicKey(info.publicKey)
@@ -229,6 +271,9 @@ class EmployeeReceiver(
 
     companion object {
         private const val TAG = "PayAlert"
+
+        /** Log tag for the latency trail shared with the owner device. */
+        private const val RELAY_TAG = "PayAlertRelay"
         private const val FETCH_LIMIT = 20
         private const val RECOVER_LIMIT = 20
         private const val SAFE_DECRYPT_ERROR = "decrypt_failed"

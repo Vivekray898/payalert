@@ -157,7 +157,10 @@ fun HomeScreen(
             )
         }
 
-        if (!monitoring || !state.notificationAccess) {
+        val missingSms = state.localDetectionEnabled && state.detectSms && !state.smsPermission
+        val missingNotifications = state.localDetectionEnabled && state.detectNotifications &&
+            !state.notificationAccess
+        if (state.localDetectionEnabled && (!monitoring || missingSms || missingNotifications)) {
             item {
                 Card(
                     modifier = Modifier
@@ -180,13 +183,24 @@ fun HomeScreen(
                         )
                         Column(Modifier.weight(1f)) {
                             Text(
-                                "Soundbox not working",
+                                when {
+                                    !monitoring -> "Detection is paused"
+                                    missingSms && missingNotifications -> "Detection needs attention"
+                                    missingSms -> "SMS detection needs access"
+                                    else -> "Notification detection needs access"
+                                },
                                 style = MaterialTheme.typography.titleMedium,
                                 color = MaterialTheme.colorScheme.secondary,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                "Tap to enable required permissions",
+                                when {
+                                    !monitoring -> "Turn monitoring on in Settings to read payments."
+                                    missingSms && missingNotifications ->
+                                        "Allow the selected SMS and notification access in Settings."
+                                    missingSms -> "Allow SMS access in Settings, or turn off SMS detection."
+                                    else -> "Allow notification access in Settings, or turn off notification detection."
+                                },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -219,7 +233,11 @@ fun HomeScreen(
                 EmptyState(
                     icon = R.drawable.ic_receipt,
                     title = "No payments yet",
-                    description = "Grant notification access in Settings, then payments will appear here automatically.",
+                    description = if (role == "employee") {
+                        "Owner payments appear here after the relay connects. Check Team & devices if one is missing."
+                    } else {
+                        "Grant the selected access in Settings, then payments will appear here automatically."
+                    },
                     action = {
                         TextButton(onClick = viewModel::refresh) {
                             Text("Refresh")

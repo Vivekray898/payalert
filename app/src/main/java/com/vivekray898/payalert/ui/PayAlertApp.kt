@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -51,6 +52,7 @@ import com.vivekray898.payalert.ui.qr.QrScreen
 import com.vivekray898.payalert.ui.settings.SettingsScreen
 import com.vivekray898.payalert.ui.transactions.TransactionsScreen
 import com.vivekray898.payalert.ui.team.TeamScreen
+import com.vivekray898.payalert.role.LocalDeviceRole
 
 @Composable
 fun PayAlertApp(
@@ -67,7 +69,11 @@ fun PayAlertApp(
     val role by pairing.role.collectAsState()
     val relay by pairing.relay.collectAsState()
     // Only a state the user can act on becomes a banner; a failed delivery retries on its own.
-    val pairingNotice = if (relay.needsRepair) {
+    val pairingNotice = if (
+        relay.needsRepair &&
+            role.role == LocalDeviceRole.EMPLOYEE &&
+            relay.paired
+    ) {
         "Payments from your owner can't be read on this device. Re-pair to keep receiving them."
     } else {
         null
@@ -100,40 +106,57 @@ fun PayAlertApp(
         // padded content area below remains the light dashboard canvas.
         containerColor = MaterialTheme.colorScheme.primary,
         bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 4.dp
-            ) {
-                Tab.all.forEachIndexed { position, tab ->
-                    NavigationBarItem(
-                        selected = selectedTab == tab,
-                        onClick = {
-                            if (tab == Tab.QR) {
-                                close()
-                                tabIndex = position
-                                open(Overlay.Qr)
-                            } else {
-                                // Choosing a tab also leaves any secondary screen that was open.
-                                close()
-                                tabIndex = position
-                            }
-                        },
-                        icon = {
-                            Icon(
-                                painter = painterResource(id = tabIcon(tab)),
-                                contentDescription = null
-                            )
-                        },
-                        label = { Text(tab.label) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+            Column {
+                // Keep notices beside the navigation bar instead of overlaying the screen. The
+                // pairing screen and every scrollable page now get their full measured height.
+                pairingNotice?.let { notice ->
+                    NoticeBanner(
+                        text = notice,
+                        actionLabel = "Re-pair",
+                        onAction = { open(Overlay.Team) }
                     )
                 }
+                healthNotice?.let { notice ->
+                    NoticeBanner(
+                        text = notice,
+                        actionLabel = "Fix",
+                        onAction = onHealthNoticeAction
+                    )
+                }
+                NavigationBar(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 4.dp
+                ) {
+                    Tab.all.forEachIndexed { position, tab ->
+                        NavigationBarItem(
+                            selected = selectedTab == tab,
+                            onClick = {
+                                if (tab == Tab.QR) {
+                                    close()
+                                    tabIndex = position
+                                    open(Overlay.Qr)
+                                } else {
+                                    // Choosing a tab also leaves any secondary screen that was open.
+                                    close()
+                                    tabIndex = position
+                                }
+                            },
+                            icon = {
+                                Icon(
+                                    painter = painterResource(id = tabIcon(tab)),
+                                    contentDescription = null
+                                )
+                            },
+                            label = { Text(tab.label) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        )
+                    }
 
                 // Secondary destinations stay one tap away without competing with the four
                 // primary tabs for attention.
@@ -199,6 +222,7 @@ fun PayAlertApp(
                     }
                 }
             }
+            }
         }
     ) { padding ->
         // The tab content stays composed underneath, so scroll position and open dialogs
@@ -213,15 +237,10 @@ fun PayAlertApp(
                     // insets consumed before a tab with its own TopAppBar Scaffold is composed, so
                     // the status-bar inset is not applied a second time.
                     .consumeWindowInsets(padding)
-                    // Reserve room for the notices so they never hide the last card on a screen
-                    // (or the export action at the foot of Analytics).
-                    .padding(bottom = when {
-                        healthNotice != null && pairingNotice != null -> 128.dp
-                        healthNotice != null || pairingNotice != null -> 72.dp
-                        else -> 0.dp
-                    })
+                    // Notices are measured in the Scaffold bottom slot, not inside this content
+                    // box. This avoids a second, empty strip below the error panels.
             ) {
-            when (selectedTab) {
+                when (selectedTab) {
                 Tab.HOME -> HomeScreen(
                     onOpenTransactions = { tabIndex = Tab.PASSBOOK.ordinal },
                     onOpenQr = { open(Overlay.Qr) },
@@ -246,49 +265,24 @@ fun PayAlertApp(
                     role = role,
                     relay = relay
                 )
-            }
+                }
 
-            if (overlay != null) {
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    when (overlay) {
-                        Overlay.Analytics -> AnalyticsScreen(onBack = ::close)
-                        Overlay.Cashbook -> CashbookScreen()
-                        Overlay.Diagnostics -> DiagnosticsScreen(onBack = ::close)
-                        Overlay.Faq -> FaqScreen(onBack = ::close)
-                        Overlay.Terms -> TermsScreen(onBack = ::close)
-                        Overlay.Qr -> QrScreen(onBack = ::close)
-                        Overlay.Backup -> BackupScreen(onBack = ::close)
-                        Overlay.Team -> TeamScreen(onBack = ::close)
-                        Overlay.Upcoming -> PassbookScreen()
+                if (overlay != null) {
+                    Surface(modifier = Modifier.fillMaxSize()) {
+                        when (overlay) {
+                            Overlay.Analytics -> AnalyticsScreen(onBack = ::close)
+                            Overlay.Cashbook -> CashbookScreen()
+                            Overlay.Diagnostics -> DiagnosticsScreen(onBack = ::close)
+                            Overlay.Faq -> FaqScreen(onBack = ::close)
+                            Overlay.Terms -> TermsScreen(onBack = ::close)
+                            Overlay.Qr -> QrScreen(onBack = ::close)
+                            Overlay.Backup -> BackupScreen(onBack = ::close)
+                            Overlay.Team -> TeamScreen(onBack = ::close)
+                            Overlay.Upcoming -> PassbookScreen()
+                        }
                     }
                 }
-            }
 
-            // Drawn last so a degraded-detection notice is visible over every tab and
-            // every secondary screen, not just the one that happened to be open. Anchored to
-            // the bottom of the content area so it can never cover a screen's top app bar
-            // (which is where History keeps Analytics / Export / Clear filters).
-            healthNotice?.let { notice ->
-                NoticeBanner(
-                    text = notice,
-                    actionLabel = "Fix",
-                    onAction = onHealthNoticeAction,
-                    modifier = Modifier.align(Alignment.BottomCenter)
-                )
-            }
-
-            // Sits above the detection notice: an unreadable owner announcement is a pairing
-            // problem, and the fix is to re-pair from the team screen.
-            pairingNotice?.let { notice ->
-                NoticeBanner(
-                    text = notice,
-                    actionLabel = "Re-pair",
-                    onAction = { open(Overlay.Team) },
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = if (healthNotice != null) 56.dp else 0.dp)
-                )
-            }
             }
         }
     }

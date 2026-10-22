@@ -1,6 +1,7 @@
 package com.vivekray898.payalert.ui
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -15,25 +16,27 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import com.vivekray898.payalert.AppGraph
+import com.vivekray898.payalert.health.HealthRepair
 import com.vivekray898.payalert.health.ReviewPromptStore
 import com.vivekray898.payalert.health.ServiceHealth
 import com.vivekray898.payalert.onboarding.OnboardingRepository
 import com.vivekray898.payalert.relay.EmployeeRealtimeService
 import com.vivekray898.payalert.role.LocalDeviceRole
 import com.vivekray898.payalert.services.PaymentMonitorService
-import kotlinx.coroutines.delay
 import com.vivekray898.payalert.ui.onboarding.OnboardingScreen
 import com.vivekray898.payalert.ui.review.ReviewPromptHost
 import com.vivekray898.payalert.ui.theme.PayAlertTheme
 import com.vivekray898.payalert.ui.team.TeamAuthViewModel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var reviewStore: ReviewPromptStore
     private lateinit var onboardingRepo: OnboardingRepository
 
-    /** Non-null while detection is degraded; rendered as a banner over the whole app. */
+    /** Non-null while a required detection path is degraded; rendered in the app's bottom slot. */
     private var healthNotice by mutableStateOf<String?>(null)
     /** Non-null while the onboarding wizard should be shown instead of the main app. */
     private var showOnboarding by mutableStateOf(false)
@@ -45,12 +48,12 @@ class MainActivity : ComponentActivity() {
         val graph = AppGraph.get(this)
         reviewStore = ReviewPromptStore(this)
         onboardingRepo = OnboardingRepository(this)
+        val role = graph.settings.localDeviceRoleState.currentRole
         // Re-assert the monitor whenever the user opens the app.
-        if (graph.settings.state.value.monitoringEnabled) {
+        if (graph.settings.state.value.monitoringEnabled && role != LocalDeviceRole.EMPLOYEE) {
             PaymentMonitorService.start(this)
         }
         // Start the Realtime service for employee devices so payments arrive immediately.
-        val role = graph.settings.localDeviceRoleState.currentRole
         if (role == LocalDeviceRole.EMPLOYEE && graph.isTransportConfigured) {
             EmployeeRealtimeService.start(this)
         }
@@ -115,54 +118,42 @@ class MainActivity : ComponentActivity() {
      * about what is still broken.
      *
      * `requestRebind` is asynchronous: the system binds the listener and then calls
-     * `onListenerConnected`, which sets [AppGraph.setListenerConnected]. A snapshot taken
-     * immediately after the repair therefore still reports "not connected" and the banner
-     * would flash a false positive. Re-check once after a short delay so a repair that
-     * actually landed clears the banner instead.
+     * `onListenerConnected`, which sets [AppGraph.setListenerConnected]. Wait for that state
+     * transition before deciding whether the listener is really broken.
      */
     private fun runHealthCheck() {
         lifecycleScope.launch {
             val graph = AppGraph.get(this@MainActivity)
             val before = ServiceHealth.evaluate(ServiceHealth.snapshot(this@MainActivity, graph))
-            val actions = ServiceHealth.repair(this@MainActivity, graph, before.repairs)
-            val after = ServiceHealth.evaluate(ServiceHealth.snapshot(this@MainActivity, graph))
-
-            healthNotice = when {
-                after.blockingIssues.isNotEmpty() ->
-                    "Detection needs attention: " +
-                        after.blockingIssues.joinToString(", ") { it.name.lowercase() }
-
-                actions.isNotEmpty() -> "Detection repaired on launch: " + actions.joinToString(", ")
-
-                else -> null
-            }
-
-            // A rebind that landed between the two snapshots clears the banner; one that
-            // has not landed yet gets one more chance before the user sees anything.
-            if (healthNotice != null && actions.isNotEmpty()) {
-                delay(REPAIR_RECHECK_DELAY_MS)
-                val recheck = ServiceHealth.evaluate(ServiceHealth.snapshot(this@MainActivity, graph))
-                healthNotice = if (recheck.blockingIssues.isEmpty()) {
-                    null
-                } else {
-                    "Detection needs attention: " +
-                        recheck.blockingIssues.joinToString(", ") { it.name.lowercase() }
+            ServiceHealth.repair(this@MainActivity, graph, before.repairs)
+            if (HealthRepair.REBIND_LISTENER in before.repairs) {
+                withTimeoutOrNull(LISTENER_REBIND_TIMEOUT_MS) {
+                    graph.listenerConnected.first { it }
                 }
+            }
+            val after = ServiceHealth.evaluate(ServiceHealth.snapshot(this@MainActivity, graph))
+            healthNotice = after.blockingIssues.takeIf { it.isNotEmpty() }?.let { issues ->
+                "Detection needs attention: " + issues.joinToString(", ") { it.name.lowercase() }
             }
         }
     }
 
     private fun openHealthSettings() {
-        runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+        val needsSms = healthNotice?.contains("sms permission") == true
+        if (needsSms) {
+            runCatching {
+                startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.parse("package:$packageName")
+                    }
+                )
+            }
+        } else {
+            runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+        }
     }
 
     private companion object {
-        /**
-         * `NotificationListenerService.requestRebind` is asynchronous: the system binds
-         * the listener and only then invokes `onListenerConnected`. A snapshot taken
-         * immediately after the repair therefore still reports "not connected". This
-         * delay lets a repair that landed clear the banner instead of flashing it.
-         */
-        private const val REPAIR_RECHECK_DELAY_MS = 750L
+        private const val LISTENER_REBIND_TIMEOUT_MS = 2_000L
     }
 }

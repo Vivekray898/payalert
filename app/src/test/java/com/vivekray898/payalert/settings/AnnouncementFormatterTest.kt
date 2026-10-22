@@ -16,7 +16,7 @@ class AnnouncementFormatterTest {
             kind = "credit"
         )
 
-        assertEquals("Payment received. 1,234 rupees 50 paise from ACME.", text)
+        assertEquals("Payment received 1,234 rupees 50 paise in your bank account.", text)
     }
 
     @Test
@@ -75,7 +75,7 @@ class AnnouncementFormatterTest {
         assertEquals("an unspecified amount", AnnouncementFormatter.amountText(Double.NaN))
         // The whole sentence must still be produced, with no exception escaping the formatter.
         assertEquals(
-            "Payment received. an unspecified amount from ACME.",
+            "Payment received an unspecified amount in your bank account.",
             AnnouncementFormatter.format("", Double.POSITIVE_INFINITY, "ACME", null, "credit")
         )
     }

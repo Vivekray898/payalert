@@ -65,6 +65,17 @@ class RelayEngine(
     private var context: RelayPairingContext? = null
     private var loop: Job? = null
 
+    /**
+     * When the server's expired-envelope sweep last ran.
+     *
+     * The sweep is a write on the shared relay, and every device used to run it on every pass -
+     * six times a minute per employee device. It only removes rows that are already past their
+     * TTL, so running it on a slow cadence changes nothing about correctness and removes a whole
+     * round trip from the hot path.
+     */
+    private var lastCleanupAt: Long? = null
+    private var lastStatusRefreshAt: Long? = null
+
     /** Current pairing context, or null when unpaired. Read by screens that show forwarding state. */
     fun pairingContext(): RelayPairingContext? = context
 
@@ -81,7 +92,14 @@ class RelayEngine(
             val previous = context
             context = next
             if (next == null) {
-                updateStatus { copy(paired = false, role = role) }
+                updateStatus {
+                    copy(
+                        paired = false,
+                        role = role,
+                        needsRepair = false,
+                        lastError = null
+                    )
+                }
                 if (previous != null) endPairing(previous)
                 return
             }
@@ -133,33 +151,54 @@ class RelayEngine(
     }
 
     /** One delivery pass; also run on app open so a queued payment is not stranded. */
-    suspend fun pump() {
-        val current = context ?: return
-        if (!transport.configured) return
-        if (deliveryMutex.isLocked) return
-        deliveryMutex.withLock {
-            pumpLocked(current)
-        }
+    suspend fun pump(): Boolean {
+        val current = context ?: return false
+        if (!transport.configured) return false
+        // A push wake-up must not be dropped just because the regular poll currently owns the
+        // mutex. Waiting here lets the push run immediately after that pass instead of falling
+        // back to the next 10/30-second tick.
+        return deliveryMutex.withLock { pumpLocked(current) }
     }
 
-    private suspend fun pumpLocked(current: RelayPairingContext) {
+    private suspend fun pumpLocked(current: RelayPairingContext): Boolean {
+        var succeeded = true
         try {
             if (current.canForward) {
                 forwarder.flush(current)
             }
             if (current.canReceive) {
                 val result = receiver.receive(current)
-                if (result.needsRepair) {
-                    updateStatus { copy(needsRepair = true) }
-                }
+                // A completed receive pass is the authoritative answer. Transport failures throw
+                // and are handled below without turning an offline device into a re-pair request.
+                updateStatus { copy(needsRepair = result.needsRepair) }
             }
-            transport.cleanupExpired()
+            cleanupExpiredIfDue()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
+            succeeded = false
             updateStatus { copy(lastError = SAFE_OFFLINE_ERROR) }
         }
-        refreshStatus()
+        refreshStatusIfDue()
+        return succeeded
+    }
+
+    /**
+     * Sweeps expired envelopes on a slow cadence.
+     *
+     * The timestamp is recorded before the call so a failing sweep cannot turn into a tight
+     * retry loop on a relay that is already struggling.
+     */
+    private suspend fun cleanupExpiredIfDue() {
+        val now = clock()
+        val last = lastCleanupAt
+        if (last != null && now - last < CLEANUP_INTERVAL_MILLIS) return
+        lastCleanupAt = now
+        try {
+            transport.cleanupExpired()
+        } catch (_: Exception) {
+            // Expiry is also enforced on read, so a failed sweep only leaves rows behind.
+        }
     }
 
     /** Starts the foreground delivery loop. Safe to call more than once. */
@@ -180,6 +219,18 @@ class RelayEngine(
 
     /** Recomputes the counters a screen displays. */
     suspend fun refreshStatus() {
+        refreshStatus(force = true)
+    }
+
+    private suspend fun refreshStatusIfDue() {
+        refreshStatus(force = false)
+    }
+
+    private suspend fun refreshStatus(force: Boolean) {
+        val now = clock()
+        val last = lastStatusRefreshAt
+        if (!force && last != null && now - last < STATUS_REFRESH_INTERVAL_MILLIS) return
+        lastStatusRefreshAt = now
         val deliveredAt = try {
             outbound.diagnostics().firstOrNull { it.status == RelayDeliveryStatus.DELIVERED }
                 ?.latestUpdatedAt
@@ -194,26 +245,20 @@ class RelayEngine(
         } catch (_: Exception) {
             0
         }
-        val decryptFailures = try {
-            received.decryptFailureCount(clock())
-        } catch (_: Exception) {
-            0
-        }
         updateStatus {
             copy(
                 pendingDeliveries = pending,
                 failedDeliveries = failed,
                 lastForwardedAt = deliveredAt,
                 receivedCount = receivedCount,
-                needsRepair = needsRepair || decryptFailures > 0,
-                // Derived from the queue rather than latched, so the message disappears once the
-                // retry succeeds and cannot go stale.
+                // Delivery failures retry in the background and should not be presented as a
+                // pairing failure. The receive pass owns needsRepair above.
                 lastError = if (failed > 0) SAFE_DELIVERY_ERROR else null
             )
         }
     }
 
-    /** Clears the re-pair latch once the user has acted on it. */
+    /** Lets the team flow dismiss a repair notice after the user has acted on it. */
     fun clearError() = updateStatus { copy(needsRepair = false) }
 
     private suspend fun countStatus(status: String): Int = try {
@@ -288,6 +333,11 @@ class RelayEngine(
     companion object {
         private const val TAG = "PayAlert"
         private const val POLL_INTERVAL_MILLIS = 30_000L
+
+        /** How often the shared relay's expired envelopes are swept. */
+        private const val CLEANUP_INTERVAL_MILLIS = 5L * 60_000L
+        /** Status counters are diagnostics, not part of the delivery path. */
+        private const val STATUS_REFRESH_INTERVAL_MILLIS = 60_000L
         private const val SAFE_OFFLINE_ERROR = "relay_unreachable"
         private const val SAFE_DELIVERY_ERROR = "forwarding_failed"
     }

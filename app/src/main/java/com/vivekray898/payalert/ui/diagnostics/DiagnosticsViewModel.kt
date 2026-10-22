@@ -5,6 +5,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.vivekray898.payalert.AppGraph
 import com.vivekray898.payalert.pipeline.ParseOutcome
+import com.vivekray898.payalert.relay.RelayStatus
+import com.vivekray898.payalert.role.LocalDeviceRole
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -18,6 +20,18 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
 
     val lastOutcome: StateFlow<ParseOutcome?> = graph.pipeline.lastOutcome
     val listenerConnected: StateFlow<Boolean> = graph.listenerConnected
+
+    /**
+     * Relay delivery state.
+     *
+     * [lastRelayPushAt] is the diagnostic that separates the two delivery paths: a null value on
+     * a device that does receive payments means the push path is not working and every payment
+     * is arriving through the polling fallback instead.
+     */
+    val lastRelayPushAt: StateFlow<Long?> = graph.lastRelayPushAt
+    val relayStatus: StateFlow<RelayStatus> = graph.relayStatus
+    val relayConfigured: Boolean = graph.isTransportConfigured
+    val relayRole: LocalDeviceRole = graph.settings.localDeviceRoleState.currentRole
 
     val eventCount: StateFlow<Int> = graph.database.paymentEventDao().observeCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)

@@ -23,10 +23,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.vivekray898.payalert.role.LocalDeviceRole
 import com.vivekray898.payalert.ui.PermissionStatus
 import com.vivekray898.payalert.ui.components.OverlayHeader
 import com.vivekray898.payalert.ui.components.SectionCard
 import com.vivekray898.payalert.ui.components.ValueRow
+import com.vivekray898.payalert.ui.formatAge
 import com.vivekray898.payalert.ui.formatAmount
 
 @Composable
@@ -37,6 +39,8 @@ fun DiagnosticsScreen(onBack: () -> Unit, viewModel: DiagnosticsViewModel = view
     val listenerConnected by viewModel.listenerConnected.collectAsState()
     val eventCount by viewModel.eventCount.collectAsState()
     val dedupCount by viewModel.dedupCount.collectAsState()
+    val lastRelayPushAt by viewModel.lastRelayPushAt.collectAsState()
+    val relayStatus by viewModel.relayStatus.collectAsState()
 
     var testText by remember {
         mutableStateOf("Rs.1,250.00 credited to A/c XX4321 on 12-05-24 from ACME STORE. UTR 412345678901")
@@ -78,6 +82,37 @@ fun DiagnosticsScreen(onBack: () -> Unit, viewModel: DiagnosticsViewModel = view
                     "asset failed to load"
                 }
             )
+        }
+
+        SectionCard(title = "Relay delivery") {
+            ValueRow(
+                "This device",
+                if (viewModel.relayRole == LocalDeviceRole.EMPLOYEE) "Employee" else "Owner"
+            )
+            ValueRow(
+                "Relay service",
+                if (viewModel.relayConfigured) "Configured" else "Not configured"
+            )
+            ValueRow(
+                "Push wake-up",
+                lastRelayPushAt?.let { "Last push ${formatAge(it)}" } ?: "No push received"
+            )
+            if (viewModel.relayRole == LocalDeviceRole.EMPLOYEE) {
+                ValueRow("Announcements received", relayStatus.receivedCount.toString())
+            } else {
+                ValueRow("Last forwarded", relayStatus.lastForwardedAt?.let { formatAge(it) } ?: "Never")
+                ValueRow("Waiting to forward", relayStatus.pendingDeliveries.toString())
+                ValueRow("Failed to forward", relayStatus.failedDeliveries.toString())
+            }
+            if (lastRelayPushAt == null && viewModel.relayRole == LocalDeviceRole.EMPLOYEE) {
+                Text(
+                    text = "No push has arrived on this device. Payments are being picked up by " +
+                        "the background poll instead, which is why they can arrive late. Check " +
+                        "that the relay-notify function and its database webhook are deployed.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
         }
 
         SectionCard(title = "Last processed message") {

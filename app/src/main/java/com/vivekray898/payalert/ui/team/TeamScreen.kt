@@ -27,6 +27,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,9 +80,9 @@ internal fun TeamContent(
     LaunchedEffect(pairing) { pairing?.refreshStatus() }
     val authError by controller.authError.collectAsState()
     var role by remember { mutableStateOf("owner") }
-    // Pairing codes are deliberately not in saved instance state or preferences.
-    var code by remember { mutableStateOf("") }
-    var codeSubmitted by remember { mutableStateOf(false) }
+    // Keep an in-progress employee code through rotation, without persisting it to preferences.
+    var code by rememberSaveable { mutableStateOf("") }
+    var codeSubmitted by rememberSaveable { mutableStateOf(false) }
     var remove by remember { mutableStateOf<TeamConnection?>(null) }
     var rename by remember { mutableStateOf<String?>(null) }
     var confirmSignOut by remember { mutableStateOf(false) }

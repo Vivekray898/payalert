@@ -42,3 +42,14 @@ app/firebase-service-account.json
 # Temporary extraction files
 .apk_extract/
 supabase/.temp/
+
+# Evaluation and QA artifacts
+/evidence/
+/screenshots/
+/reports/
+*.log
+*.trace
+*.prof
+
+# Buildathon/local project metadata
+.freebuff/

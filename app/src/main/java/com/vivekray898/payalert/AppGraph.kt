@@ -23,8 +23,12 @@ import com.vivekray898.payalert.relay.RelayEngine
 import com.vivekray898.payalert.relay.RelayIdentity
 import com.vivekray898.payalert.relay.RelayPeerKeyCache
 import com.vivekray898.payalert.relay.RelayPumpScheduler
+import com.vivekray898.payalert.relay.RelayStatus
+import com.vivekray898.payalert.relay.EmployeeRealtimeService
+import com.vivekray898.payalert.role.LocalDeviceRole
 import com.vivekray898.payalert.settings.AppSettings
 import com.vivekray898.payalert.services.PayAlertMessagingService
+import com.vivekray898.payalert.services.PaymentMonitorService
 import com.vivekray898.payalert.services.RelayAnnouncementNotifier
 import com.vivekray898.payalert.team.SupabaseTeamRepository
 import com.vivekray898.payalert.team.TeamController
@@ -155,6 +159,23 @@ object AppGraph {
                 roleState = settings.localDeviceRoleState,
                 onPairingChanged = { snapshot, role ->
                     relayEngine.onPairingChanged(snapshot, role)
+                    if (role == LocalDeviceRole.EMPLOYEE && snapshot != null) {
+                        // The generic relay loop is a 30-second fallback. Once pairing confirms
+                        // this is an employee, hand delivery to the dedicated short-cadence
+                        // foreground service instead of leaving both loops competing for the
+                        // same delivery mutex.
+                        relayEngine.stop()
+                        PaymentMonitorService.stop(appContext)
+                        if (!EmployeeRealtimeService.isRunning) {
+                            EmployeeRealtimeService.start(appContext)
+                        }
+                    } else {
+                        EmployeeRealtimeService.stop(appContext)
+                        relayEngine.start()
+                        if (settings.state.value.monitoringEnabled) {
+                            PaymentMonitorService.start(appContext)
+                        }
+                    }
                     if (snapshot == null) {
                         synchronized(fcmRegistrationLock) { fcmRegistrationKey = null }
                     } else {
@@ -223,7 +244,11 @@ object AppGraph {
         /** Starts the foreground relay loop. Cheap and idempotent; used by the monitor service too. */
         fun startRelay() {
             teamController
-            relayEngine.start()
+            if (settings.localDeviceRoleState.currentRole == LocalDeviceRole.EMPLOYEE) {
+                if (!EmployeeRealtimeService.isRunning) EmployeeRealtimeService.start(appContext)
+            } else {
+                relayEngine.start()
+            }
         }
 
         /**
@@ -231,20 +256,49 @@ object AppGraph {
          * periodic worker so a paired device keeps working with no screen open.
          */
         suspend fun runRelayPump(): Boolean {
-            var refreshed = true
             try {
-                refreshed = teamController.refreshNow()
+                // A pump runs every ten seconds on an employee device, and the pairing it needs
+                // changes only when the team does. A recent read is reused so the pass stays on
+                // a single round trip.
+                teamController.refreshNow(TEAM_SNAPSHOT_MAX_AGE_MILLIS)
             } catch (_: Exception) {
                 // Offline: the previously stored pairing still lets queued work be flushed.
-                refreshed = false
             }
-            relayEngine.pump()
-            return refreshed
+            // The result now reflects the delivery pass, not merely whether the team metadata
+            // request completed. FCM can therefore retry a real fetch failure instead of marking
+            // the wake-up handled after a swallowed transport exception.
+            return relayEngine.pump()
         }
+
+        /**
+         * When a relay push last woke this device, or null when none ever arrived.
+         *
+         * This is the only local signal that says whether the push path is live. When a device
+         * keeps receiving payments by polling while this stays null, the push path is the
+         * reason delivery is slow.
+         */
+        private val _lastRelayPushAt = MutableStateFlow<Long?>(null)
+        val lastRelayPushAt: StateFlow<Long?> = _lastRelayPushAt.asStateFlow()
+
+        fun noteRelayPush(at: Long) {
+            _lastRelayPushAt.value = at
+        }
+
+        /** Live relay counters for the diagnostics screen. */
+        val relayStatus: StateFlow<RelayStatus> get() = relayEngine.status
     }
 
     private const val TAG = "PayAlert"
     private const val KEY_DEVICE_NAME = "name"
+
+    /**
+     * How long a team snapshot read is reused by the relay pump.
+     *
+     * A pairing change is picked up by the pairings-changed push and by the next full refresh,
+     * so a minute of reuse costs nothing and removes five of every six snapshot round trips
+     * from the employee pump.
+     */
+    private const val TEAM_SNAPSHOT_MAX_AGE_MILLIS = 60_000L
 
     private fun emptyConfig() = ParserConfig(
         schemaVersion = 0,

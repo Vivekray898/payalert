@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.vivekray898.payalert.AppGraph
+import com.vivekray898.payalert.role.LocalDeviceRole
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -30,8 +31,10 @@ class RelayMessageFcmWork(
             // A push carries only a wake-up id. Refreshing the pairing first is
             // important for a cold process: the relay engine has no context until
             // the authenticated team snapshot has been read.
-            val refreshed = graph.runRelayPump()
-            if (!refreshed && graph.team.configured && graph.team.account.value != null) {
+            val delivered = graph.runRelayPump()
+            if (!delivered && graph.team.configured && graph.team.account.value != null &&
+                graph.settings.localDeviceRoleState.currentRole == LocalDeviceRole.EMPLOYEE
+            ) {
                 Result.retry()
             } else {
                 Result.success()

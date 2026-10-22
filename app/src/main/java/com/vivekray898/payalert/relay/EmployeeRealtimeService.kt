@@ -76,7 +76,6 @@ class EmployeeRealtimeService : Service() {
         }
 
         ServiceCompatStartForeground(this)
-        AppGraph.get(this).startRelay()
 
         if (pumpJob?.isActive == true) return START_STICKY
         pumpJob = scope.launch {
@@ -111,9 +110,13 @@ class EmployeeRealtimeService : Service() {
         const val NOTIFICATION_ID = 1002
         const val CHANNEL_ID = "payalert_relay_realtime"
 
-        /** Employee-side pull cadence while paired. The WorkManager floor stays at 15 minutes. */
-        private const val PUMP_INTERVAL_MILLIS = 10_000L
-        private const val PUMP_LOG_EVERY = 6
+        /**
+         * Polling fallback while FCM is unavailable. FCM remains the immediate path; this cadence
+         * limits the worst-case fallback delay to roughly thirty seconds while cutting idle fetches
+         * by two thirds compared with the old ten-second loop.
+         */
+        private const val PUMP_INTERVAL_MILLIS = 30_000L
+        private const val PUMP_LOG_EVERY = 2
 
         @Volatile
         var isRunning: Boolean = false

@@ -1,6 +1,7 @@
 package com.vivekray898.payalert.ui
 
 import android.Manifest
+import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -28,7 +29,9 @@ object PermissionStatus {
             context.contentResolver,
             "enabled_notification_listeners"
         ) ?: return false
-        return enabled.split(":").any { it.contains(context.packageName) }
+        return enabled.split(":").any { flattened ->
+            ComponentName.unflattenFromString(flattened)?.packageName == context.packageName
+        }
     }
 
     fun isIgnoringBatteryOptimizations(context: Context): Boolean {

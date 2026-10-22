@@ -22,6 +22,9 @@ data class HomeState(
     val storedCount: Int = 0,
     val smsPermission: Boolean = false,
     val notificationAccess: Boolean = false,
+    val detectSms: Boolean = true,
+    val detectNotifications: Boolean = true,
+    val localDetectionEnabled: Boolean = true,
     val batteryExempt: Boolean = false,
     val listenerConnected: Boolean = false,
     val parserRuleSet: String = "",
@@ -69,6 +72,9 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         _state.value = _state.value.copy(
             smsPermission = PermissionStatus.hasReceiveSms(context),
             notificationAccess = PermissionStatus.hasNotificationAccess(context),
+            detectSms = graph.settings.state.value.detectSms,
+            detectNotifications = graph.settings.state.value.detectNotifications,
+            localDetectionEnabled = graph.settings.localDeviceRoleState.allowsLocalDetection,
             batteryExempt = PermissionStatus.isIgnoringBatteryOptimizations(context),
             listenerConnected = graph.listenerConnected.value,
             parserRuleSet = graph.parserConfig.banks.size.toString() + " banks / " +

@@ -247,6 +247,7 @@ internal class FakeRelayTransport(
     var inbox = mutableListOf<RelayInboxMessage>()
     var registerFailure: Exception? = null
     var bindFailure: Exception? = null
+    var peerKeyFailure: Exception? = null
     var enqueueFailure: Exception? = null
     var fetchFailure: Exception? = null
     var cleanupCount = 0
@@ -262,7 +263,10 @@ internal class FakeRelayTransport(
             ?: throw RelayKeyNotBoundException("no peer key for $employeeDeviceId")
     }
 
-    override suspend fun peerKey(): RelayPeerKeyInfo? = peerKeys.values.firstOrNull()
+    override suspend fun peerKey(): RelayPeerKeyInfo? {
+        peerKeyFailure?.let { throw it }
+        return peerKeys.values.firstOrNull()
+    }
 
     override suspend fun enqueue(
         employeeDeviceId: String,
@@ -291,5 +295,8 @@ internal class FakeRelayTransport(
         return true
     }
 
-    override suspend fun cleanupExpired(): Int = cleanupCount
+    override suspend fun cleanupExpired(): Int {
+        cleanupCount++
+        return cleanupCount
+    }
 }

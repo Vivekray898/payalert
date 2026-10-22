@@ -6,6 +6,7 @@ import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.google.firebase.messaging.FirebaseMessaging
+import com.vivekray898.payalert.AppGraph
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.vivekray898.payalert.relay.RelayFcmContract
@@ -37,7 +38,12 @@ class PayAlertMessagingService : FirebaseMessagingService() {
             RelayFcmContract.RELAY_MESSAGE_TYPE -> {
                 val messageId = RelayFcmContract.relayMessageId(message.data)
                 if (messageId != null) {
+                    val receivedAt = System.currentTimeMillis()
                     Log.i(TAG, "relay_message received: $messageId")
+                    // Record the arrival so the diagnostics screen can say whether the push path
+                    // is live. A device that keeps receiving payments while this stays empty is
+                    // being served by the polling fallback, which is what makes delivery slow.
+                    runCatching { AppGraph.get(this).noteRelayPush(receivedAt) }
                     // This visible high-importance notification is posted before
                     // the network fetch so the device gets immediate user-visible
                     // feedback even while the authenticated RPC is starting.

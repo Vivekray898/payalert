@@ -28,7 +28,11 @@ data class HealthSnapshot(
     val smsGranted: Boolean,
     val notificationsGranted: Boolean,
     val batteryExempt: Boolean,
-    val pendingReminders: Int
+    val pendingReminders: Int,
+    /** False for an employee device, which intentionally does not read local inputs. */
+    val localDetectionEnabled: Boolean = true,
+    val detectSms: Boolean = true,
+    val detectNotifications: Boolean = true
 )
 
 /** A repair the health check can perform without user interaction. */
@@ -62,15 +66,19 @@ object ServiceHealthEvaluator {
         val checks = mutableListOf<HealthCheck>()
         val repairs = mutableListOf<HealthRepair>()
 
-        // Monitoring switched off on purpose is a valid state, not a fault.
-        val monitorOk = !snapshot.monitoringEnabled || snapshot.monitorServiceRunning
-        if (snapshot.monitoringEnabled && !snapshot.monitorServiceRunning) {
+        // Employee devices only receive the owner's encrypted announcements and must not be held
+        // hostage by local SMS/notification permissions. Monitoring switched off on purpose is also
+        // a valid state, not a fault.
+        val localMonitoringRequired = snapshot.localDetectionEnabled && snapshot.monitoringEnabled
+        val monitorOk = !localMonitoringRequired || snapshot.monitorServiceRunning
+        if (localMonitoringRequired && !snapshot.monitorServiceRunning) {
             repairs += HealthRepair.START_MONITOR
         }
         checks += HealthCheck(
             name = "Payment monitoring",
             ok = monitorOk,
             detail = when {
+                !snapshot.localDetectionEnabled -> "Not required on employee device"
                 !snapshot.monitoringEnabled -> "Off (chosen in Settings)"
                 snapshot.monitorServiceRunning -> "Running"
                 else -> "Not running"
@@ -78,41 +86,56 @@ object ServiceHealthEvaluator {
             blocking = true
         )
 
+        val notificationDetectionRequired = localMonitoringRequired && snapshot.detectNotifications
         checks += HealthCheck(
             name = "Notification access",
-            ok = snapshot.notificationAccessGranted,
-            detail = if (snapshot.notificationAccessGranted) "Granted" else "Not granted",
-            blocking = true
+            ok = !notificationDetectionRequired || snapshot.notificationAccessGranted,
+            detail = when {
+                !notificationDetectionRequired -> "Not required"
+                snapshot.notificationAccessGranted -> "Granted"
+                else -> "Not granted"
+            },
+            blocking = notificationDetectionRequired
         )
 
         // The listener can be bound but not connected after the app process is rebuilt.
-        val listenerOk = !snapshot.notificationAccessGranted || snapshot.notificationListenerConnected
-        if (snapshot.notificationAccessGranted && !snapshot.notificationListenerConnected) {
+        val listenerOk = !notificationDetectionRequired || snapshot.notificationListenerConnected
+        if (notificationDetectionRequired && snapshot.notificationAccessGranted &&
+            !snapshot.notificationListenerConnected
+        ) {
             repairs += HealthRepair.REBIND_LISTENER
         }
         checks += HealthCheck(
             name = "Notification listener",
             ok = listenerOk,
             detail = when {
+                !notificationDetectionRequired -> "Not required"
                 !snapshot.notificationAccessGranted -> "Waiting for access"
                 snapshot.notificationListenerConnected -> "Connected"
                 else -> "Granted but not connected"
             },
-            blocking = true
+            blocking = notificationDetectionRequired
         )
 
+        val smsDetectionRequired = localMonitoringRequired && snapshot.detectSms
         checks += HealthCheck(
             name = "SMS permission",
-            ok = snapshot.smsGranted,
-            detail = if (snapshot.smsGranted) "Granted" else "Not granted",
-            blocking = true
+            ok = !smsDetectionRequired || snapshot.smsGranted,
+            detail = when {
+                !smsDetectionRequired -> "Not required"
+                snapshot.smsGranted -> "Granted"
+                else -> "Not granted"
+            },
+            blocking = smsDetectionRequired
         )
 
         checks += HealthCheck(
             name = "Notification permission",
             ok = snapshot.notificationsGranted,
             detail = if (snapshot.notificationsGranted) "Granted" else "Not granted",
-            blocking = true
+            // This permission controls PayAlert's own status/reminder notifications. It does not
+            // control Android's notification-listener access, so it must not block payment reading.
+            blocking = false
         )
 
         checks += HealthCheck(
@@ -154,7 +177,10 @@ object ServiceHealth {
         smsGranted = PermissionStatus.hasReceiveSms(context),
         notificationsGranted = PermissionStatus.hasPostNotifications(context),
         batteryExempt = PermissionStatus.isIgnoringBatteryOptimizations(context),
-        pendingReminders = graph.database.upcomingPaymentDao().pending().size
+        pendingReminders = graph.database.upcomingPaymentDao().pending().size,
+        localDetectionEnabled = graph.settings.localDeviceRoleState.allowsLocalDetection,
+        detectSms = graph.settings.state.value.detectSms,
+        detectNotifications = graph.settings.state.value.detectNotifications
     )
 
     fun evaluate(snapshot: HealthSnapshot): ServiceHealthReport =

@@ -2,6 +2,8 @@ package com.vivekray898.payalert.relay
 
 import java.nio.charset.StandardCharsets.UTF_8
 import java.util.UUID
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Owns this installation's X25519 relay identity.
@@ -13,8 +15,32 @@ import java.util.UUID
 class RelayIdentity(
     private val storage: RelayPrivateKeyStorage,
     private val transport: RelayTransport,
+    private val clock: () -> Long = System::currentTimeMillis,
     private val newKeyId: () -> String = { UUID.randomUUID().toString() }
 ) {
+
+    /**
+     * The key id the server last accepted, and when it was published.
+     *
+     * Publishing is idempotent on the server, but it is still a full network round trip, and the
+     * relay publishes on every forward attempt and on every receive pass. Remembering the
+     * published key turns those into a local check, which is what keeps the relay's per-payment
+     * cost down to a single round trip instead of three.
+     *
+     * The re-publish interval keeps the binding recoverable: if the server loses the key (a
+     * restored database, a rotated binding), the next publish after the interval registers it
+     * again instead of waiting for a key change that may never come.
+     */
+    private val publishLock = Mutex()
+
+    @Volatile
+    private var publishedKeyId: String? = null
+
+    @Volatile
+    private var publishedKey: String? = null
+
+    @Volatile
+    private var publishedAt: Long = 0L
 
     /** The stored identity, or null when none is stored or the stored one cannot be read. */
     fun current(): RelayKeyPair? = try {
@@ -38,17 +64,58 @@ class RelayIdentity(
     /** Replaces the identity. Called when a pairing ends so the next pairing starts fresh. */
     fun rotate(): RelayKeyPair {
         storage.clear()
+        forgetPublished()
         return generate()
     }
 
-    fun clear() = storage.clear()
+    fun clear() {
+        storage.clear()
+        forgetPublished()
+    }
 
-    /** Publishes the current public key. Returns null when the build has no team configuration. */
+    /**
+     * Publishes the current public key. Returns null when the build has no team configuration.
+     *
+     * The server call is skipped while the published key is still current, so the common case
+     * costs no network at all.
+     */
     suspend fun publish(): RelayKeyPair? {
         if (!transport.configured) return null
-        val keyPair = loadOrCreate()
-        transport.registerKey(keyPair.keyId, keyPair.publicKey.encoded)
-        return keyPair
+        return publishLock.withLock {
+            val keyPair = loadOrCreate()
+            val encoded = keyPair.publicKey.encoded
+            val now = clock()
+            if (!isPublished(keyPair.keyId, encoded, now)) {
+                transport.registerKey(keyPair.keyId, encoded)
+                publishedKeyId = keyPair.keyId
+                publishedKey = encoded
+                publishedAt = now
+            }
+            keyPair
+        }
+    }
+
+    /**
+     * Whether the server already holds this exact key and the binding may still be trusted.
+     *
+     * Both the key id and the key material are compared: a rotation can reuse an id, and the
+     * server must never be left holding a key that no longer matches this device's private half.
+     */
+    private fun isPublished(keyId: String, encoded: String, now: Long): Boolean =
+        publishedKeyId == keyId &&
+            publishedKey == encoded &&
+            now - publishedAt < REPUBLISH_INTERVAL_MILLIS
+
+    /** Drops the memo so the next publish talks to the server again. */
+    private fun forgetPublished() {
+        publishedKeyId = null
+        publishedKey = null
+        publishedAt = 0L
+    }
+
+    private companion object {
+        /** How long a published key is trusted before it is registered again. */
+        const val REPUBLISH_INTERVAL_MILLIS = 5L * 60_000L
     }
 }
 

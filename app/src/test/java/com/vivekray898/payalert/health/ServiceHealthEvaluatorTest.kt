@@ -15,7 +15,10 @@ class ServiceHealthEvaluatorTest {
         smsGranted: Boolean = true,
         notificationsGranted: Boolean = true,
         batteryExempt: Boolean = true,
-        pendingReminders: Int = 0
+        pendingReminders: Int = 0,
+        localDetectionEnabled: Boolean = true,
+        detectSms: Boolean = true,
+        detectNotifications: Boolean = true
     ) = HealthSnapshot(
         monitoringEnabled = monitoringEnabled,
         monitorServiceRunning = monitorServiceRunning,
@@ -24,7 +27,10 @@ class ServiceHealthEvaluatorTest {
         smsGranted = smsGranted,
         notificationsGranted = notificationsGranted,
         batteryExempt = batteryExempt,
-        pendingReminders = pendingReminders
+        pendingReminders = pendingReminders,
+        localDetectionEnabled = localDetectionEnabled,
+        detectSms = detectSms,
+        detectNotifications = detectNotifications
     )
 
     private fun ServiceHealthReport.check(name: String) = checks.first { it.name == name }
@@ -78,14 +84,51 @@ class ServiceHealthEvaluatorTest {
     }
 
     @Test
-    fun `revoked sms or notification permission is blocking`() {
+    fun `revoked sms or notification permission is blocking only for enabled local inputs`() {
         val noSms = ServiceHealthEvaluator.evaluate(snapshot(smsGranted = false))
         assertFalse(noSms.healthy)
         assertEquals("SMS permission", noSms.blockingIssues.single().name)
 
         val noNotifications = ServiceHealthEvaluator.evaluate(snapshot(notificationsGranted = false))
-        assertFalse(noNotifications.healthy)
-        assertEquals("Notification permission", noNotifications.blockingIssues.single().name)
+        assertTrue(noNotifications.healthy)
+        assertEquals("Notification permission", noNotifications.issues.single().name)
+        assertFalse(noNotifications.issues.single().blocking)
+    }
+
+    @Test
+    fun `disabled detection paths do not require their permissions`() {
+        val report = ServiceHealthEvaluator.evaluate(
+            snapshot(
+                smsGranted = false,
+                notificationAccessGranted = false,
+                notificationListenerConnected = false,
+                detectSms = false,
+                detectNotifications = false
+            )
+        )
+
+        assertTrue(report.healthy)
+        assertTrue(report.repairs.isEmpty())
+        assertEquals("Not required", report.check("SMS permission").detail)
+        assertEquals("Not required", report.check("Notification access").detail)
+    }
+
+    @Test
+    fun `employee devices do not need local detection permissions`() {
+        val report = ServiceHealthEvaluator.evaluate(
+            snapshot(
+                monitoringEnabled = true,
+                monitorServiceRunning = false,
+                smsGranted = false,
+                notificationAccessGranted = false,
+                notificationListenerConnected = false,
+                localDetectionEnabled = false
+            )
+        )
+
+        assertTrue(report.healthy)
+        assertTrue(report.repairs.isEmpty())
+        assertEquals("Not required on employee device", report.check("Payment monitoring").detail)
     }
 
     @Test

@@ -24,11 +24,12 @@ class BootReceiver : BroadcastReceiver() {
         when (intent.action) {
             Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED -> {
                 val graph = AppGraph.get(context)
-                if (graph.settings.state.value.monitoringEnabled) {
+                val role = graph.settings.localDeviceRoleState.currentRole
+                if (graph.settings.state.value.monitoringEnabled && role != LocalDeviceRole.EMPLOYEE) {
                     PaymentMonitorService.start(context)
                 }
                 // Start Realtime service for employee devices after boot
-                if (graph.settings.localDeviceRoleState.currentRole == LocalDeviceRole.EMPLOYEE) {
+                if (role == LocalDeviceRole.EMPLOYEE) {
                     EmployeeRealtimeService.start(context)
                     RelayPumpScheduler.schedule(context)
                 }

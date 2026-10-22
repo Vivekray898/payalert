@@ -104,6 +104,37 @@ class RelayEngineTest {
         assertEquals(1, fakes.queue.rows.values.single().attemptCount)
     }
 
+    @Test
+    fun `a failed receive reports an unsuccessful pump so push work can retry`() = runTest {
+        val fakes = Fakes(scope = this)
+        fakes.prepare()
+        fakes.engine.onPairingChanged(employeeSnapshot(), LocalDeviceRole.EMPLOYEE)
+        fakes.transport.fetchFailure = RelayTransportException("offline")
+
+        assertFalse(fakes.engine.pump())
+    }
+
+    @Test
+    fun `the expired-envelope sweep runs on a slow cadence instead of every pass`() = runTest {
+        val fakes = Fakes(scope = this)
+        fakes.prepare()
+        fakes.engine.onPairingChanged(employeeSnapshot(), LocalDeviceRole.EMPLOYEE)
+
+        fakes.engine.pump()
+        assertEquals(1, fakes.transport.cleanupCount)
+
+        // The sweep is a write on the shared relay. Running it on every pass put one round trip
+        // per poll on the employee's hot path.
+        fakes.engine.pump()
+        fakes.engine.pump()
+        assertEquals(1, fakes.transport.cleanupCount)
+
+        // Past the interval it runs again.
+        fakes.now += 10L * 60_000L
+        fakes.engine.pump()
+        assertEquals(2, fakes.transport.cleanupCount)
+    }
+
     private fun ownerSnapshot() = TeamSnapshot(
         device = TeamDevice(OWNER, "Counter phone"),
         employees = listOf(TeamConnection("pairing-1", EMPLOYEE, "Till")),

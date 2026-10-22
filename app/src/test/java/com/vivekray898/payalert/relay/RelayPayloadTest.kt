@@ -111,7 +111,7 @@ class RelayPayloadTest {
         assertEquals("Money received 500 rupees from Ramesh.", text)
         // The employee hears the same sentence an owner device would say: nothing is announced
         // before the payment, so no device name is read out.
-        assertEquals("Payment received. 10 rupees from an unknown sender.",
+        assertEquals("Payment received 10 rupees in your bank account.",
             RelayAnnouncement.format("", payload.copy(amount = 10.0, merchant = null)))
     }
 

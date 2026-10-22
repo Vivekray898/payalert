@@ -1,207 +1,303 @@
 # PayAlert
 
-Local-first Android payment announcements, history, cashbook and reminders, built with Kotlin,
-Jetpack Compose and Room. **Settings → Team & devices** optionally connects owner and employee
-phones using Supabase and Google sign-in. No account is required for local features.
+<div align="center">
 
-## Build and run
+<img src="https://readme-typing-svg.demolab.com?font=Inter&weight=700&size=24&pause=1200&color=058E7A&center=true&vCenter=true&width=820&lines=Hear+payments+the+moment+they+arrive;Local-first+Android+payment+alerts;Secure+owner-to-employee+announcements;Short%2C+clear%2C+actionable+notifications" alt="PayAlert animated product tagline" />
 
-Requirements: a **full JDK 25** (including `jlink`), Android SDK command-line tools, Make, and an
-Android 24+ device or emulator. The existing daemon major is pinned in
-`gradle/gradle-daemon-jvm.properties` and `.java-version`; Gradle 9.6.0 is provided by the wrapper.
-Dependency selections are recorded in `app/gradle.lockfile`. No global dependency installs are needed.
+**A local-first Android payment alert, cashbook, reminder, and team announcement app.**
 
-From this folder, set `JAVA_HOME` to your JDK and `ANDROID_HOME` to your SDK, then:
+<br />
 
-```sh
+[![Android](https://img.shields.io/badge/Android-24%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://developer.android.com/)
+[![Kotlin](https://img.shields.io/badge/Kotlin-Android-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](https://kotlinlang.org/)
+[![Jetpack Compose](https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)](https://developer.android.com/compose)
+[![Supabase](https://img.shields.io/badge/Optional%20Cloud-Supabase-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)](https://supabase.com/)
+[![Build](https://img.shields.io/badge/Build-Gradle%209.6.0-02303A?style=for-the-badge&logo=gradle&logoColor=white)](https://gradle.org/)
+
+<br />
+
+<sub>Detect locally → format clearly → announce immediately → optionally relay securely.</sub>
+
+</div>
+
+---
+
+## Why PayAlert?
+
+PayAlert turns payment notifications and bank SMS messages into spoken, visible, searchable alerts. It is designed for counters, shops, family businesses, and teams where the person receiving a payment is not always the person who needs to hear about it.
+
+### Search-friendly overview
+
+PayAlert is an **Android payment notification app**, **bank SMS alert app**, **UPI payment announcer**, **cashbook tracker**, and optional **owner-to-employee payment relay**. It supports local-first operation with Room, Android notification-listener detection, bank SMS parsing, Text-to-Speech announcements, reminders, transaction history, analytics, export, backup, QR payment links, and optional encrypted team pairing with Supabase and Firebase Cloud Messaging.
+
+## ✨ Feature highlights
+
+| Area | What PayAlert provides |
+|---|---|
+| **Payment detection** | Reads supported payment notifications and bank SMS messages after the user grants Android permissions. |
+| **Spoken announcements** | Uses Android Text-to-Speech with language, speed, pitch, volume, chime, vibration, and template controls. |
+| **Short default wording** | `Payment received {amount} in your bank account.` — no sender name is spoken by default. |
+| **Duplicate protection** | Suppresses repeated notification/SMS versions of the same payment using persistent exact and semantic deduplication. |
+| **Transaction history** | Search, filter, date ranges, direction totals, account filters, details, CSV/JSON export, and analytics. |
+| **Cashbook** | Track money in/out with labels, categories, notes, reports, editing, deletion, and export. |
+| **Upcoming payments** | Create one-time or repeating reminders, mark them paid, and automatically roll recurring reminders forward. |
+| **Team devices** | Pair an owner device with employee devices using Google sign-in and a single-use pairing code. |
+| **Encrypted relay** | Forward owner-side credits to employees using device-generated keys and encrypted envelopes. |
+| **Push wake-up** | Optional high-priority FCM wake-up for near-instant remote delivery when the Supabase webhook is configured. |
+| **Offline-first core** | Local payment detection, history, cashbook, reminders, QR links, export, backup, and TTS work without an account. |
+| **Diagnostics** | Inspect permissions, service health, parser results, relay status, and recovery actions. |
+| **No monetization** | No subscriptions, paywalls, ads, attribution SDKs, or payment gateway are required by this project. |
+
+<details>
+<summary><strong>🎬 The product loop</strong></summary>
+
+```text
+┌──────────────────────┐
+│ Bank SMS / payment   │
+│ app notification      │
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────┐      ┌──────────────────────┐
+│ Parser + dedup       │─────▶│ Room local database  │
+│ amount / bank / UTR  │      │ history + cashbook   │
+└──────────┬───────────┘      └──────────────────────┘
+           │
+           ▼
+┌──────────────────────┐
+│ TTS + chime + alert  │
+│ Payment received ...  │
+└──────────┬───────────┘
+           │ optional owner role
+           ▼
+┌──────────────────────┐      ┌──────────────────────┐
+│ Encrypted relay      │─────▶│ Employee device      │
+│ Supabase RPC / FCM   │      │ decrypt + announce   │
+└──────────────────────┘      └──────────────────────┘
+```
+
+</details>
+
+## 🧭 How the app is organized
+
+PayAlert has four primary destinations and a **More tools** menu:
+
+| Destination | Use it for |
+|---|---|
+| **Home** | See money-in/money-out totals, detection health, recent payments, and quick actions. |
+| **History** | Search and inspect detected payments, filter by direction/date/account, export, and open analytics. |
+| **Payment QR** | Create and share a UPI payment link/QR without camera scanning. |
+| **Settings** | Configure detection, permissions, speech, announcement text, sound, deduplication, backup, help, and team pairing. |
+| **More → Cashbook** | Track manual income and expenses and generate reports. |
+| **More → Upcoming payments** | Schedule one-time or recurring reminders. |
+| **More → Analytics** | Review totals, categories, payees, daily movement, and CSV summaries. |
+| **More → Team & devices** | Pair owners and employees, refresh membership, remove devices, and inspect forwarding status. |
+| **Settings → Diagnostics** | Run a real pipeline test and inspect service/permission/relay state. |
+| **Settings → Help & FAQ** | Read common setup and privacy guidance. |
+| **Settings → Privacy & terms** | Review the local-first data and permission model. |
+
+## 🔊 Announcement wording
+
+The built-in credit announcement is intentionally short:
+
+> **Payment received 750 rupees in your bank account.**
+
+The default credit template does **not** speak the merchant or sender name. Merchant, bank, account, reference, and raw source fields can still remain available in local history and diagnostics where appropriate.
+
+Supported template placeholders:
+
+| Placeholder | Meaning |
+|---|---|
+| `{amount}` | Spoken amount, such as `1,234 rupees 50 paise`. |
+| `{merchant}` | Parsed merchant, VPA, or sender label. |
+| `{bank}` | Parsed bank or payment source. |
+| `{kind}` | `credit` or `debit`. |
+
+To customize the spoken sentence:
+
+1. Open **Settings**.
+2. Open the announcement/template section.
+3. Edit the credit or debit template.
+4. Use **Preview** before saving.
+5. Clear the custom credit template or reset settings to return to the short built-in wording.
+
+## 🔐 Local-first privacy model
+
+PayAlert does not require an account for its core features. Local payment records, cashbook entries, reminders, settings, and received announcements are stored on the Android device using Room and Android storage facilities.
+
+Optional team forwarding is separate from local detection:
+
+- The owner device detects and announces its own payments.
+- Employee devices intentionally stop processing their own SMS and payment notifications.
+- Only eligible owner-side credits are forwarded.
+- Device identity keys are generated locally.
+- The relay uses an X25519-derived shared secret and AES-256-GCM encrypted envelopes.
+- The server stores routing metadata and opaque ciphertext, not plaintext payment details.
+- The employee decrypts locally before storing and announcing the payment.
+- Received announcements are retained locally for the configured retention period; the relay is not a history backup.
+- Never place service-role keys, FCM service-account JSON, OAuth secrets, or private tokens in the APK or repository.
+
+## ⚡ Remote announcement delivery: what is actually instant?
+
+Same Wi-Fi is **not** a direct transport in the current architecture. Phones communicate with the configured backend over HTTPS.
+
+| State | Delivery behavior |
+|---|---|
+| **FCM configured and healthy** | Supabase webhook sends a high-priority data-only wake-up containing only a message ID; the employee then fetches the encrypted envelope through an authenticated RPC. |
+| **FCM unavailable, employee relay service alive** | The employee uses a low-usage polling fallback at approximately 30-second intervals. |
+| **App services not alive** | WorkManager provides a slower background recovery path with Android scheduling constraints. |
+| **No backend configuration** | Local-only features continue to work; remote team delivery is not available. |
+
+For the best remote latency, complete the optional Supabase + FCM setup below. The app never sends payment plaintext through FCM.
+
+---
+
+## 🚀 Use the app
+
+### First launch checklist
+
+1. Install and open PayAlert.
+2. Complete the onboarding steps.
+3. Enable **Notification access** so PayAlert can read supported payment notifications.
+4. Grant **SMS permissions** if you want bank SMS detection.
+5. Allow PayAlert notifications so it can show status and announcement notifications.
+6. Keep battery optimization disabled for PayAlert if your device aggressively stops background services.
+7. Confirm the Home screen shows healthy detection paths.
+8. Send a small test payment or use **Settings → Diagnostics → Run through pipeline**.
+
+### Owner mode
+
+Owner mode is the default local role.
+
+- The device reads its own supported payment notifications and SMS messages.
+- It announces accepted credits/debits locally according to Settings.
+- It stores accepted events in local history.
+- If team pairing is enabled, it forwards eligible credits to paired employees through the encrypted relay.
+
+### Employee mode
+
+Employee mode is activated after joining an owner's team.
+
+- Local SMS and payment-notification detection is intentionally disabled.
+- The device listens for owner-forwarded payments.
+- It decrypts valid envelopes locally.
+- It stores the received announcement and speaks the short announcement.
+- Re-pair the device if Diagnostics reports that the owner key cannot be read.
+
+### Pair an employee device
+
+#### On the owner phone
+
+1. Open **Settings → Team & devices**.
+2. Continue with Google sign-in.
+3. Choose **I'm the owner**.
+4. Tap **Create pairing code**.
+5. Share the 12-character code privately. Codes use `A–F` and `0–9`, expire after 10 minutes, and work once.
+
+#### On the employee phone
+
+1. Open **Settings → Team & devices**.
+2. Continue with Google sign-in using the employee account.
+3. Choose **I'm an employee**.
+4. Paste the complete pairing code.
+5. Tap **Pair this device**.
+6. Keep the relay notification visible while the employee service is active.
+
+#### After pairing
+
+- Return to the owner's Team screen and tap **Refresh devices**.
+- Confirm the owner sees the employee device.
+- Confirm the employee role badge is visible.
+- For FCM delivery, confirm the device token is registered and the Supabase webhook is working.
+- To remove a connection, use **Remove** on the owner or **Leave team** on the employee.
+
+> Pairing shares device/team metadata and relay routing state. It does not merge local payment histories or local cashbook data.
+
+### Record a cashbook entry
+
+1. Open **More → Cashbook**.
+2. Tap **Add entry**.
+3. Choose **Money in** or **Money out**.
+4. Enter the amount, label, category, note, and date if needed.
+5. Save the entry.
+6. Use **Report**, category filters, edit, delete, or export as needed.
+
+### Add an upcoming payment
+
+1. Open **More → Upcoming payments**.
+2. Tap **Add reminder**.
+3. Enter the label and amount.
+4. Choose a one-time or repeating schedule.
+5. Save the reminder.
+6. Use **Mark paid** to complete it; repeating reminders roll forward to the next date.
+
+### Export and backup
+
+- **History → Export history** creates CSV or JSON output for the current history selection.
+- **Cashbook → Export** creates a cashbook CSV.
+- **Settings → Backup & restore** exports or imports local payment, cashbook, and reminder data.
+- Speech preferences and authentication secrets are deliberately excluded from backup.
+
+---
+
+## 🛠️ Build from source
+
+### Requirements
+
+| Tool | Required setup |
+|---|---|
+| Java | Full **JDK 25**, including `jlink`; `.java-version` pins `25`. |
+| Android SDK | Command-line tools plus platform `android-37.0` and build tools `36.0.0`. |
+| Gradle | Use the checked-in Gradle wrapper; it pins Gradle `9.6.0`. |
+| Device | Android API 24+ device or emulator; Android 14/API 34 is used by the device test workflow. |
+| Optional tools | Android Studio, Make, Docker, Supabase CLI, and PostgreSQL for optional checks. |
+
+Set `JAVA_HOME` and `ANDROID_HOME` before building:
+
+```bash
+export JAVA_HOME="/path/to/jdk-25"
+export ANDROID_HOME="$HOME/Library/Android/sdk"   # macOS example
+export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+```
+
+Install the Android SDK packages if needed:
+
+```bash
 sdkmanager "platform-tools" "platforms;android-37.0" "build-tools;36.0.0"
 sdkmanager --licenses
-make setup                         # first run: downloads dependencies, tests, builds app + UI tests
-make test                          # offline JVM tests; no cloud or emulator needed
-make build                         # offline debug build after setup
+```
+
+### Fast local build
+
+```bash
+git clone <your-repository-url> payalert
+cd payalert
+make setup
+```
+
+`make setup` downloads project dependencies, runs JVM tests, builds the debug APK, and builds the Android test APK.
+
+Build and install manually:
+
+```bash
+make build
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n com.vivekray898.payalert/.ui.MainActivity
 ```
 
-Use Android Studio's SDK Manager if `sdkmanager` is not on your PATH. Do not commit
-`local.properties`, machine-specific JDK paths, or secrets. Gradle and SDK caches must be populated
-before offline commands can work; clean-machine setup needs network access.
+The debug APK output is:
 
-## Enable optional team pairing
-
-1. Create a Supabase project. In its SQL editor, apply **`supabase/schema.sql` first**, then
-   **`supabase/team_pairing.sql`**. Both are non-destructive and may be reapplied. If you ever
-   reapply the base schema, reapply the team migration afterward to restore restricted device
-   privileges. Pairing writes go through five authorization-checked RPCs, not direct table writes;
-   the relay adds eight more.
-2. Apply **`supabase/encrypted_relay.sql`** third if you want owner → employee forwarding. It adds
-   the relay tables, their RLS, and eight `relay_*` RPCs, and is also safe to reapply.
-3. Enable the **Google** provider in Supabase Authentication. Configure its web OAuth client ID
-   and secret in the Supabase dashboard only. In Google Cloud, allow your project's
-   `https://<project-ref>.supabase.co/auth/v1/callback` redirect URI.
-4. In Supabase Authentication → URL Configuration → Redirect URLs, allow exactly
-   **`com.vivekray898.payalert://auth/callback`**. Do not enable implicit-flow token callbacks.
-   Android opens the system browser and uses PKCE to exchange the returned one-time code.
-5. Set the two **public** client values before building. This workspace can keep them in the
-   ignored root `secrets.properties` file, so normal builds do not need exports. The file is already
-   configured locally in this checkout; do not commit it. For another checkout, copy the following
-   template and replace the values:
-
-   ```sh
-    cat > secrets.properties <<'EOF'
-    SUPABASE_URL=https://your-project.supabase.co
-    SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_public_key
-    EOF
-    make build
-    adb install -r app/build/outputs/apk/debug/app-debug.apk
-   ```
-
-   Gradle `-P` properties take precedence, followed by environment variables, then
-   `secrets.properties`. `.env.example` documents the variables; Gradle does **not** load dotenv
-   files. Never embed
-   `service_role`, `sb_secret_`, Google OAuth secrets, or personal access tokens. Builds with no
-   public configuration show a setup explanation and make no team requests.
-
-### Owner and employee flow
-
-- On both phones, open **Settings → Manage team & devices** and continue with Google. Different
-  accounts are supported. Name devices so people can recognize them.
-- The owner chooses **I'm the owner → Create pairing code** and shares it privately.
-- The employee chooses **I'm an employee**, pastes the full 12-character code, and taps
-  **Pair this device**. Codes use A–F and 0–9, expire after 10 minutes, and work once.
-- On the owner's phone, tap **Refresh devices** to read back the employee phone. An owner device
-  can have several employee devices. An employee can have only one owner and cannot also invite
-  employees. Cancel an outstanding owner invite before joining another owner.
-- Owners can **Remove** an employee; employees can **Leave team**. Both ask for confirmation.
-  Signing out clears sign-in only, **not** cloud connections. Disconnect before signing out.
-
-Pairing on its own shares profile/device metadata and membership only. **Cross-device payment
-history, raw message uploads, realtime subscriptions, and push delivery are not part of this
-feature.** Existing payment/cashbook cloud tables remain unused. Device lists refresh on opening
-the screen or tapping Refresh, and the periodic relay job refreshes the pairing in the background.
-Pairing never changes local payment data.
-
-### Encrypted owner → employee forwarding
-
-Pairing also drives the local role, and the role decides what a phone listens to:
-
-- **Owner device** behaves as before: it detects its own SMS and notification payments, announces
-  and stores them locally, and additionally forwards *money received* to each paired employee.
-- **Employee device** stops handling its own SMS and notifications entirely (the receivers and the
-  pipeline drop them before parsing) and announces only what the owner forwards. A high-priority
-  FCM wake-up posts a temporary notification immediately, so the screen does not need to be turned
-  on to start the remote announcement.
-
-What crosses the network is an opaque envelope. Each device generates an X25519 identity key on the
-device; the private half is wrapped by a non-exportable Android Keystore AES key and is never
-logged, exported, or sent. The owner binds the employee's current public key through an
-authenticated RPC, derives a per-message AES-256-GCM key with HKDF-SHA256 from the X25519 shared
-secret, and encrypts a small payload (amount, currency, merchant, bank, reference, detection time).
-The owner/employee/message identifiers are length-framed into both the HKDF info and the GCM
-additional data, so a ciphertext cannot be replayed or re-associated with another pair. The server
-stores routing metadata plus `bytea` only — no amount, merchant, sender, or raw message in any
-column — and deletes the row when the employee confirms delivery or when it expires.
-
-The relay is a hop, not a history store:
-
-- Only credits are forwarded, only after pairing, and never anything already in local history.
-- Failed sends stay in a Room queue and retry with exponential backoff; the queue survives restarts.
-- The 24-hour retention clock starts when the employee *receives* the message. An app-open sweep and
-  a `WorkManager` job delete expired rows, and History also filters by expiry at read time.
-- Unreadable envelopes are never guessed at. The ciphertext is kept locally for a later recovery,
-  no payment detail is stored, and the app asks the user to re-pair.
-- Leaving or being removed drops queued payments, forgets the peer key, rotates this device's
-  identity, and purges the removed owner's announcements on the employee device.
-
-Encryption needs no configuration. A build without Supabase values never generates a key, never
-sends an envelope, and keeps every local-only feature working.
-
-**Trust model.** The key exchange is authenticated by the pairing session (the owner can only bind
-an employee that is actually paired to it), so the server cannot read a payload at rest. It is not
-protected against a server that actively substitutes keys *while pairing*: that requires out-of-band
-verification of a key fingerprint, which this feature does not implement.
-
-Codes are stored as server-side hashes, consumed transactionally, and limited to 10 join attempts
-per account per 10-minute window. Tokens and pending PKCE verifiers use Keystore AES/GCM storage
-excluded from backup and device transfer. Installation IDs are scoped to account/project and
-survive sign-out. Uninstalling clears them: disconnect old devices before uninstalling.
-
-## Checks
-
-```sh
-make test                          # canonical offline JVM suite
-make test-device                   # Android emulator/device connected via adb
-make lint                          # current legacy lint failures are listed below
+```text
+app/build/outputs/apk/debug/app-debug.apk
 ```
 
-The instrumented Compose tests use isolated in-memory repositories, not real Google accounts or
-cloud data. They exercise code creation/copy/cancel, device-list refresh, removal confirmation,
-employee validation/join/leave, setup and failed-load recovery. JVM tests cover controller
-transitions, PKCE, exact RPC requests, refresh rotation, safe errors, and redirect refusal.
+### Offline checks after setup
 
-For database authorization and pairing behavior, create a **disposable empty PostgreSQL 13+ database**
-with pgcrypto available and use a privileged test role:
-
-```sh
-export TEST_DATABASE_URL='postgresql://localhost/payalert_pairing_test'
-make test-db
+```bash
+make test          # offline JVM unit tests
+make build         # offline debug APK
+make test-device   # connected Android device/emulator tests
+make lint          # Android lint; existing legacy issues may remain
 ```
 
-This applies an Auth shim and all three migrations twice, then verifies two-account
-pairing/readback, expiry, code reuse, rate limits, role restrictions, direct-access denial, owner
-removal and employee leave. It also covers the relay: key registration and rotation, peer-key
-binding and lookup, owner-only enqueue, idempotent enqueue, employee-only lease/fetch/ack, expiry
-cleanup, cascade on unpairing, and that the relay tables expose no plaintext payload column.
-Fixtures roll back; schema setup remains. **Never run the shim against a real Supabase
-project**: it replaces `auth.uid()`. For an already migrated disposable Supabase database, use the
-non-shim command documented at the top of `supabase/tests/team_pairing.sql`.
-
-Reports: `app/build/reports/tests/testDebugUnitTest/index.html` and
-`app/build/reports/androidTests/connected/debug/index.html`.
-To intentionally refresh dependency locks after a dependency change, run `make locks` and review
-`app/gradle.lockfile` before committing.
-
-### Current verification limits
-
-Build/JVM tests, emulator Compose tests and local PostgreSQL tests are verified. A complete live
-Google OAuth → Supabase/PostgREST → two physical phones flow still needs project configuration and
-testing, and so does a real two-device forwarding round trip: the JVM relay tests use in-memory
-transports and the SQL suite exercises the RPC contracts without an app. The Docker recipe has not
-been executed in this workspace (Docker is unavailable).
-
-`make lint` currently reports three pre-existing errors: a non-observable default locale in
-`ui/analytics/AnalyticsScreen.kt` and two missing optional-telephony hardware declarations for SMS
-permissions. These are outside the pairing feature; no lint errors are suppressed by this change.
-
-## Rebuild on clean Linux / Docker
-
-The Dockerfile installs a JDK, Android SDK/tools, build dependencies and project dependencies.
-Google's Linux Android build tools require amd64; on ARM hosts use emulation explicitly:
-
-```sh
-docker build --platform linux/amd64 -t payalert .
-docker run --rm --network none payalert make test
-docker run --rm -p 8080:8080 payalert
-```
-
-The last command serves the built debug APK at
-`http://localhost:8080/app-debug.apk` for downloading/installing on Android; it is **not a browser
-version of the app**. The image build needs network access; the baked-in JVM test command is offline.
-For a configured APK, pass the public settings with `--build-arg SUPABASE_URL=...` and
-`--build-arg SUPABASE_PUBLISHABLE_KEY=...`. Private files are excluded from the Docker build context.
-
-## Deploy
-
-Deploy the optional database scripts through the Supabase SQL editor in the order above. Never
-send a migration to production merely to run a test. Debug-device installation uses `adb install -r`
-as above. For production Android distribution:
-
-```sh
-./gradlew :app:assembleRelease
-# output: app/build/outputs/apk/release/app-release-unsigned.apk
-```
-
-Sign this artifact with your own release keystore using Android Studio or `apksigner`, then
-distribute the signed APK through your chosen channel. Release signing credentials are deliberately
-not stored/configured in the repository. The keystore, password and private OAuth credentials must
-never enter git, Docker build args, examples or verification reports.
+The project keeps dependency locking in `app/gradle.lockfile`. Do not install project dependencies globally.

@@ -1,8 +1,0 @@
---------- beginning of main
-10-16 01:23:36.445  6687  6957 I PayAlertSound: transition=decision mode=CHIME_ONLY preview=false chime=true speak=false vibrate=true
-10-16 01:23:36.446  6687  6957 I PayAlertSound: transition=vibration_started mode=CHIME_ONLY preview=false
-10-16 01:23:36.446  6687  6957 I PayAlertSound: transition=chime_queued mode=CHIME_ONLY preview=false queueDepth=1
-10-16 01:23:36.455  6687  6957 I PayAlertSound: transition=chime_started mode=CHIME_ONLY preview=false volume=1.0
-10-16 01:23:36.734  6687  7671 I PayAlert: Notification pipeline result: no_match
-10-16 01:23:37.961  6687  7671 I PayAlert: Notification pipeline result: duplicate
-10-16 01:23:39.675  6687  6957 I PayAlertSound: transition=chime_completed mode=CHIME_ONLY preview=false

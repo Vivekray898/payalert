@@ -35,6 +35,7 @@ class TeamController(
     initialDeviceName: String,
     private val roleState: LocalDeviceRoleState? = null,
     private val onPairingChanged: (suspend (TeamSnapshot?, LocalDeviceRole) -> Unit)? = null,
+    private val clock: () -> Long = System::currentTimeMillis,
     private val saveDeviceName: (String) -> Unit = {}
 ) {
     val configured = repository.configured
@@ -46,11 +47,22 @@ class TeamController(
     private var generation = 0
     private val refreshMutex = Mutex()
 
+    /**
+     * When the team snapshot was last read from the server.
+     *
+     * The relay pump refreshes the pairing on every pass, and a pass runs every ten seconds on
+     * an employee device. The snapshot is what tells the relay which owner it belongs to, and
+     * that pairing does not change between refreshes, so a recent read is reused instead of
+     * paying for another round trip.
+     */
+    private var lastRefreshAt: Long? = null
+
     init {
         scope.launch {
             repository.account.collect { account ->
                 generation++
                 action?.cancel()
+                lastRefreshAt = null
                 mutableState.value = TeamState(account = account)
                 if (account != null) refresh()
             }
@@ -75,12 +87,25 @@ class TeamController(
      * The old background-only [refresh] returned before its network request ran, so an FCM process
      * could call the relay pump while it still had no employee context. This suspendable variant
      * completes the readback and role/relay synchronization before its caller proceeds.
+     *
+     * [maxAgeMillis] reuses a recent read instead of asking the server again. Zero - the default -
+     * always reads, which is what the manual refresh and the mutation readbacks need.
      */
-    suspend fun refreshNow(): Boolean {
+    suspend fun refreshNow(maxAgeMillis: Long = 0L): Boolean {
         if (!configured || repository.account.value == null) return false
         return refreshMutex.withLock {
             if (repository.account.value == null) return false
+            val now = clock()
+            val last = lastRefreshAt
+            if (maxAgeMillis > 0L && last != null && state.value.team != null &&
+                now - last < maxAgeMillis
+            ) {
+                // A recent read already established the pairing, and the relay context that
+                // follows from it is still current.
+                return@withLock true
+            }
             val snapshot = repository.loadTeam(deviceName)
+            lastRefreshAt = now
             update {
                 copy(
                     account = repository.account.value,

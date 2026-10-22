@@ -69,7 +69,12 @@ serve(async (req) => {
     const employeeDeviceId = record.employee_device_id as string;
     const messageId = record.message_id as string;
 
-    console.log(`relay-notify: relay_private.envelopes insert for employee ${employeeDeviceId}, message ${messageId}`);
+    // How long the envelope waited between being written and this function seeing it. This is
+    // the part of the delay the relay server itself is responsible for.
+    const webhookDelayMillis = record.created_at
+      ? Date.now() - new Date(record.created_at).getTime()
+      : -1;
+    console.log(`relay-notify: relay_private.envelopes insert for employee ${employeeDeviceId}, message ${messageId} webhook_delay_ms=${webhookDelayMillis}`);
 
     // Fetch the FCM token from the devices table
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -194,6 +199,16 @@ interface ServiceAccount {
   project_id?: string;
 }
 
+/**
+ * Cached FCM OAuth access token.
+ *
+ * Minting a token costs a full round trip to Google's token endpoint plus an RSA signature, and
+ * that round trip sits directly on the path between the owner's payment and the employee's
+ * notification. The token is valid for an hour, so it is reused for fifty-five minutes.
+ */
+let cachedFcmToken: { token: string; expiresAt: number } | null = null;
+const FCM_TOKEN_TTL_MILLIS = 55 * 60 * 1000;
+
 function parseServiceAccount(value: string): ServiceAccount {
   const credentials = JSON.parse(value) as Partial<ServiceAccount>;
   if (!credentials.private_key || !credentials.client_email) {
@@ -223,10 +238,17 @@ function pemToBytes(pem: string): Uint8Array {
 
 /**
  * Exchange service account credentials for an FCM access token.
+ *
+ * The token is cached until shortly before it expires, so a burst of relay messages does not
+ * turn into a burst of token requests to Google.
  */
 async function getFcmAccessToken(serviceAccountJson: string): Promise<string> {
+  const nowMillis = Date.now();
+  if (cachedFcmToken && cachedFcmToken.expiresAt > nowMillis) {
+    return cachedFcmToken.token;
+  }
   const credentials = parseServiceAccount(serviceAccountJson);
-  const now = Math.floor(Date.now() / 1000);
+  const now = Math.floor(nowMillis / 1000);
   const encodedHeader = base64Url(utf8(JSON.stringify({ alg: 'RS256', typ: 'JWT' })));
   const encodedPayload = base64Url(utf8(JSON.stringify({
     iss: credentials.client_email,
@@ -264,5 +286,9 @@ async function getFcmAccessToken(serviceAccountJson: string): Promise<string> {
   }
   const body = await response.json() as { access_token?: string };
   if (!body.access_token) throw new Error('FCM OAuth response did not contain access_token');
+  cachedFcmToken = {
+    token: body.access_token,
+    expiresAt: nowMillis + FCM_TOKEN_TTL_MILLIS,
+  };
   return body.access_token;
 }

@@ -16,10 +16,11 @@ class ServiceRestartReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_USER_PRESENT) return
         val graph = AppGraph.get(context)
-        if (graph.settings.state.value.monitoringEnabled) {
+        val role = graph.settings.localDeviceRoleState.currentRole
+        if (graph.settings.state.value.monitoringEnabled && role != LocalDeviceRole.EMPLOYEE) {
             PaymentMonitorService.start(context)
         }
-        if (graph.settings.localDeviceRoleState.currentRole == LocalDeviceRole.EMPLOYEE) {
+        if (role == LocalDeviceRole.EMPLOYEE) {
             EmployeeRealtimeService.start(context)
         }
     }

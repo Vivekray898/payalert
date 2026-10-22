@@ -1,5 +1,0 @@
---------- beginning of main
-10-16 01:16:51.713  6687  6957 I PayAlertSound: transition=preview_requested mode=SILENT preview=true context=com.vivekray898.payalert
-10-16 01:16:51.713  6687  6957 I PayAlertSound: transition=decision mode=SILENT preview=true chime=false speak=false vibrate=true
-10-16 01:16:51.714  6687  6957 I PayAlertSound: transition=vibration_started mode=SILENT preview=true
-10-16 01:16:51.714  6687  6957 I PayAlertSound: transition=silent mode=SILENT preview=true
