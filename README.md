@@ -1,13 +1,18 @@
 # PayAlert
 
+<p align="center">
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:07111F,45:0C4A6E,100:00D4FF&height=230&section=header&text=PAYALERT&fontColor=E6FFFB&fontSize=56&fontAlignY=36&desc=REAL-TIME%20PAYMENT%20SIGNAL%20LAYER&descAlignY=59&descSize=16&animation=twinkling" alt="PayAlert futuristic animated header" />
+</p>
+
 <div align="center">
 
-<img src="https://readme-typing-svg.demolab.com?font=Inter&weight=700&size=24&pause=1200&color=058E7A&center=true&vCenter=true&width=820&lines=Hear+payments+the+moment+they+arrive;Local-first+Android+payment+alerts;Secure+owner-to-employee+announcements;Short%2C+clear%2C+actionable+notifications" alt="PayAlert animated product tagline" />
+<img src="https://readme-typing-svg.demolab.com?font=Space+Mono&weight=700&size=22&pause=1300&color=00D4FF&center=true&vCenter=true&width=900&lines=Hear+payments+the+moment+they+arrive;Local-first+Android+payment+intelligence;Secure+owner-to-employee+announcements;Detect+%E2%86%92+deduplicate+%E2%86%92+announce+%E2%86%92+relay" alt="PayAlert animated product tagline" />
 
 **A local-first Android payment alert, cashbook, reminder, and team announcement app.**
 
 <br />
 
+[![Version](https://img.shields.io/badge/Version-1.1.0-00D4FF?style=for-the-badge&logo=android&logoColor=white)](app/build.gradle.kts)
 [![Android](https://img.shields.io/badge/Android-24%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://developer.android.com/)
 [![Kotlin](https://img.shields.io/badge/Kotlin-Android-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](https://kotlinlang.org/)
 [![Jetpack Compose](https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)](https://developer.android.com/compose)
@@ -17,6 +22,13 @@
 <br />
 
 <sub>Detect locally → format clearly → announce immediately → optionally relay securely.</sub>
+
+<br />
+<br />
+
+| 🧠 **DETECTION** | ⚡ **RESPONSE** | 🔐 **PRIVACY** | 🌐 **OPTIONAL RELAY** |
+|:---:|:---:|:---:|:---:|
+| SMS + UPI notifications | TTS + chime + vibration | Room local-first storage | Supabase + FCM |
 
 </div>
 
@@ -47,6 +59,64 @@ PayAlert is an **Android payment notification app**, **bank SMS alert app**, **U
 | **Offline-first core** | Local payment detection, history, cashbook, reminders, QR links, export, backup, and TTS work without an account. |
 | **Diagnostics** | Inspect permissions, service health, parser results, relay status, and recovery actions. |
 | **No monetization** | No subscriptions, paywalls, ads, attribution SDKs, or payment gateway are required by this project. |
+
+## 🛰️ Mission control
+
+<div align="center">
+
+| **CURRENT RELEASE** | **LOCAL SIGNAL LOOP** | **DEDUP HORIZON** | **REMOTE FALLBACK** |
+|:---:|:---:|:---:|:---:|
+| `v1.1.0` · code `2` | SMS + notifications → Room → TTS | 5 min exact · 10 min semantic | ~30 sec polling |
+
+</div>
+
+PayAlert is intentionally designed as a **signal layer**, not a payment processor. It observes the
+signals already exposed by Android, converts them into a normalized event, and keeps the result useful
+even when the cloud layer is unavailable.
+
+## 🧬 Signal architecture
+
+```mermaid
+flowchart LR
+    A[Bank SMS] --> P[Parser + source admission]
+    B[UPI notification] --> P
+    P --> F{Settled payment?}
+    F -- no --> X[Ignore / diagnostics]
+    F -- yes --> D[Exact + semantic dedup]
+    D -- duplicate --> Y[Record duplicate outcome]
+    D -- new event --> R[(Room local database)]
+    R --> T[TTS + chime + vibration]
+    R --> H[History / cashbook / analytics]
+    R -. owner only .-> E[Encrypted relay]
+    E --> C[Supabase RPC + optional FCM wake-up]
+    C --> W[Employee decrypts locally]
+    W --> T2[TTS announcement]
+
+    classDef input fill:#07111f,stroke:#00d4ff,color:#e6fffb;
+    classDef core fill:#0c4a6e,stroke:#67e8f9,color:#f0fdff;
+    classDef local fill:#12372f,stroke:#34d399,color:#ecfdf5;
+    classDef remote fill:#312e81,stroke:#a5b4fc,color:#eef2ff;
+    class A,B input;
+    class P,F,D core;
+    class R,T,H,X,Y,T2 local;
+    class E,C,W remote;
+```
+
+<details>
+<summary><strong>▸ Read the flow like a dashboard</strong></summary>
+
+```text
+INPUTS              TRUSTED CORE                 OUTPUTS
+────────             ────────────                 ───────
+Bank SMS       ───┐  normalize                    local history
+UPI notices    ───┼─▶ parse ─▶ filter ─▶ dedup ─▶ TTS alert
+Mirror apps    ───┘       settled?               optional relay
+```
+
+The local path is the source of truth for the device. Remote delivery is an optional encrypted copy
+of eligible owner-side credits, not a replacement for local history.
+
+</details>
 
 <details>
 <summary><strong>🎬 The product loop</strong></summary>
@@ -150,6 +220,84 @@ Same Wi-Fi is **not** a direct transport in the current architecture. Phones com
 
 For the best remote latency, complete the optional Supabase + FCM setup below. The app never sends payment plaintext through FCM.
 
+## ⚠️ Production watch-outs
+
+PayAlert is deliberately transparent about the hard part of payment detection: Android exposes
+notifications and SMS messages, not a universal, authoritative payment event API. Banks, UPI apps,
+messaging apps, and device manufacturers can all emit different copies of the same transaction.
+
+### 👻 Ghost notifications and delayed replays
+
+UPI apps and SMS providers can sometimes emit a **ghost notification**: a delayed, repeated, stale, or
+intermediate message that looks payment-like but is not a new settlement. Common examples include:
+
+- A UPI app posts the payment first and the bank sends an SMS several minutes later.
+- An app reposts an old notification after Android reconnects the notification listener.
+- A messaging or caller-ID app mirrors the bank SMS as its own notification.
+- A payment app sends a `pending`, `processing`, retry, reversal, or “check details” message before the
+  final settled result.
+- The same amount and merchant appear again, but the source app uses a new notification identity.
+
+The pipeline already has several safety layers:
+
+| Guard | Current behavior |
+|---|---|
+| **Source admission** | Only configured bank/UPI sources or messages with a recognized payment source are considered. |
+| **Skip rules** | OTPs, due reminders, promotions, delivery updates, payment requests, and declined/failed messages are rejected. |
+| **SMS mirror suppression** | Known messaging/caller-ID mirrors are ignored when SMS detection is enabled. |
+| **Exact deduplication** | Stable UTR/reference values and source event identities are stored persistently. |
+| **Semantic deduplication** | Amount, direction, currency, account, merchant, and a rolling time window are compared across SMS and notifications. |
+| **Atomic admission** | Concurrent callbacks are serialized so three UPI apps cannot all announce the same payment at once. |
+
+### ⏱️ Why a delayed copy can still register as new
+
+The default exact deduplication window is **5 minutes** and the semantic replay lookup currently looks
+back approximately **10 minutes**. A stable UTR/reference is stronger than the time window and can still
+collapse a matching event later. However, if a bank SMS or UPI replay arrives after the semantic lookback
+and does not carry the same stable reference, it can be accepted as a new event.
+
+That is a known boundary, not proof that a second payment occurred. Before acting on a suspicious second
+announcement, compare:
+
+1. UTR, RRN, or transaction ID.
+2. Bank/account and source app.
+3. Amount, currency, merchant, and direction.
+4. The original payment timestamp versus the notification delivery timestamp.
+5. The available balance or bank statement when the transaction matters financially.
+
+Two genuine payments with the same amount and merchant close together can also be difficult to distinguish
+when the provider omits a UTR. For high-value workflows, treat the bank statement or UTR as authoritative,
+not the spoken announcement alone.
+
+### 🧯 What users should do when an alert looks wrong
+
+1. Open **History** and inspect the source, merchant, account, reference, and received time.
+2. Open **Settings → Diagnostics** and check the last parser outcome.
+3. Temporarily disable either **SMS detection** or **notification detection** to isolate the source.
+4. Use the notification-source allowlist when a device has a noisy wallet or mirror app.
+5. Keep battery optimization disabled; a reconnect can replay notifications on some Android builds.
+6. Do not use PayAlert alone to confirm settlement. Verify the bank/UPI app or statement for disputes,
+   refunds, reversals, or high-value payments.
+
+## 🧭 Areas still needing improvement
+
+The current release is usable, but these are honest improvement areas for future iterations:
+
+- **Long-delay reconciliation:** correlate a notification and SMS beyond the current lookback using a
+  stronger persisted UTR/RRN matching and a review queue instead of silently accepting every late copy.
+- **Ghost-event quarantine:** distinguish `pending`, `processing`, retry, reversal, refund, and final
+  settlement states more explicitly, then announce only the state the user trusts.
+- **Provider format coverage:** bank and UPI wording changes without notice. New app versions need new
+  parser fixtures and device-level verification.
+- **Ambiguity UX:** show a visible “possible duplicate / needs review” state when amount, merchant, and
+  timing match but the provider omits a stable reference.
+- **OEM reliability:** background execution, notification listener reconnects, TTS engines, and battery
+  policies vary across Samsung, Xiaomi, OnePlus, Pixel, and other Android builds.
+- **Remote end-to-end confidence:** FCM + Supabase delivery still needs a real two-device test with the
+  project's production configuration; the local fallback is intentionally slower.
+- **Release automation:** versioning is now explicit in Gradle, but release signing, changelog
+  generation, and a public APK/release pipeline still need to be connected for distribution.
+
 ---
 
 ## 🚀 Use the app
@@ -246,6 +394,7 @@ Employee mode is activated after joining an owner's team.
 
 | Tool | Required setup |
 |---|---|
+| App release | **v1.1.0** · `versionCode 2` · configured in `app/build.gradle.kts`. |
 | Java | Full **JDK 25**, including `jlink`; `.java-version` pins `25`. |
 | Android SDK | Command-line tools plus platform `android-37.0` and build tools `36.0.0`. |
 | Gradle | Use the checked-in Gradle wrapper; it pins Gradle `9.6.0`. |
@@ -301,3 +450,19 @@ make lint          # Android lint; existing legacy issues may remain
 ```
 
 The project keeps dependency locking in `app/gradle.lockfile`. Do not install project dependencies globally.
+
+## 🌌 Release signal
+
+<div align="center">
+
+| `v1.1.0` | `versionCode 2` | local-first | Android 24+ |
+|:---:|:---:|:---:|:---:|
+| current app release | upgrade-safe increment | offline core | notification + SMS paths |
+
+<sub>Built for clarity at the counter. Designed for resilient signals, not blind automation.</sub>
+
+</div>
+
+<p align="center">
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:00D4FF,50:0C4A6E,100:07111F&height=120&section=footer&animation=twinkling" alt="Animated PayAlert footer" />
+</p>
