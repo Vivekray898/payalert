@@ -12,7 +12,7 @@
 
 <br />
 
-[![Version](https://img.shields.io/badge/Version-1.1.0-00D4FF?style=for-the-badge&logo=android&logoColor=white)](app/build.gradle.kts)
+[![Version](https://img.shields.io/badge/Version-1.1.1-00D4FF?style=for-the-badge&logo=android&logoColor=white)](app/build.gradle.kts)
 [![Android](https://img.shields.io/badge/Android-24%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://developer.android.com/)
 [![Kotlin](https://img.shields.io/badge/Kotlin-Android-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](https://kotlinlang.org/)
 [![Jetpack Compose](https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)](https://developer.android.com/compose)
@@ -47,7 +47,7 @@ PayAlert is an **Android payment notification app**, **bank SMS alert app**, **U
 | Area | What PayAlert provides |
 |---|---|
 | **Payment detection** | Reads supported payment notifications and bank SMS messages after the user grants Android permissions. |
-| **Spoken announcements** | Uses Android Text-to-Speech with language, speed, pitch, volume, chime, vibration, and template controls. |
+| **Spoken announcements** | Uses Android Text-to-Speech with language, speed, pitch, notification-volume routing, chime, vibration, and template controls. |
 | **Short default wording** | `Payment received {amount} in your bank account.` — no sender name is spoken by default. |
 | **Duplicate protection** | Suppresses repeated notification/SMS versions of the same payment using persistent exact and semantic deduplication. |
 | **Transaction history** | Search, filter, date ranges, direction totals, account filters, details, CSV/JSON export, and analytics. |
@@ -66,7 +66,7 @@ PayAlert is an **Android payment notification app**, **bank SMS alert app**, **U
 
 | **CURRENT RELEASE** | **LOCAL SIGNAL LOOP** | **DEDUP HORIZON** | **REMOTE FALLBACK** |
 |:---:|:---:|:---:|:---:|
-| `v1.1.0` · code `2` | SMS + notifications → Room → TTS | 5 min exact · 10 min semantic | ~30 sec polling |
+| `v1.1.1` · code `3` | SMS + notifications → Room → TTS | 5 min exact · 10 min semantic | ~30 sec polling |
 
 </div>
 
@@ -394,7 +394,7 @@ Employee mode is activated after joining an owner's team.
 
 | Tool | Required setup |
 |---|---|
-| App release | **v1.1.0** · `versionCode 2` · configured in `app/build.gradle.kts`. |
+| App release | **v1.1.1** · `versionCode 3` · configured in `app/build.gradle.kts`. |
 | Java | Full **JDK 25**, including `jlink`; `.java-version` pins `25`. |
 | Android SDK | Command-line tools plus platform `android-37.0` and build tools `36.0.0`. |
 | Gradle | Use the checked-in Gradle wrapper; it pins Gradle `9.6.0`. |
@@ -455,7 +455,7 @@ The project keeps dependency locking in `app/gradle.lockfile`. Do not install pr
 
 <div align="center">
 
-| `v1.1.0` | `versionCode 2` | local-first | Android 24+ |
+| `v1.1.1` | `versionCode 3` | local-first | Android 24+ |
 |:---:|:---:|:---:|:---:|
 | current app release | upgrade-safe increment | offline core | notification + SMS paths |
 

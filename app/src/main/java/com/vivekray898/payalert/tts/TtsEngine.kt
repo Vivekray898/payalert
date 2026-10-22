@@ -1,6 +1,7 @@
 package com.vivekray898.payalert.tts
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.os.Build
 import android.os.Bundle
@@ -272,6 +273,9 @@ class TtsEngine(
     }
 
     private fun applySettings(tts: TextToSpeech) {
+        // Keep spoken payment announcements on the system notification stream instead of the
+        // media/music stream. The per-utterance volume below remains PayAlert's own attenuation.
+        tts.setAudioAttributes(notificationSpeechAudioAttributes)
         val snapshot = settings.state.value
         tts.setSpeechRate(snapshot.speechRate.coerceIn(0.1f, 2.0f))
         tts.setPitch(snapshot.pitch.coerceIn(0.1f, 2.0f))
@@ -319,19 +323,15 @@ class TtsEngine(
     }
 
     private fun createChimePlayer(preview: Boolean): MediaPlayer? {
-        val player = try {
-            MediaPlayer.create(appContext, R.raw.kaching)
-        } catch (error: RuntimeException) {
-            logTransition(
-                "chime_load_failed",
-                null,
-                preview,
-                "error=${error.javaClass.simpleName}"
-            )
-            null
-        } ?: return null
-
+        val player = MediaPlayer()
         return runCatching {
+            // Configure routing before prepare(). MediaPlayer.create() prepares immediately, so
+            // constructing the player explicitly avoids falling back to the media/music stream.
+            player.setAudioAttributes(notificationChimeAudioAttributes)
+            appContext.resources.openRawResourceFd(R.raw.kaching).use { source ->
+                player.setDataSource(source.fileDescriptor, source.startOffset, source.length)
+                player.prepare()
+            }
             player.setOnCompletionListener {
                 submitSoundTask { onChimeCompleted() }
             }
@@ -559,6 +559,16 @@ class TtsEngine(
     )
 
     private companion object {
+        val notificationSpeechAudioAttributes: AudioAttributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+            .build()
+
+        val notificationChimeAudioAttributes: AudioAttributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
+
         const val MAX_TTS_LEAD_MS = 150L
         const val SOUND_TAG = "PayAlertSound"
         const val PREVIEW_TEXT = "This is a PayAlert sound preview."
