@@ -12,7 +12,7 @@
 
 <br />
 
-[![Version](https://img.shields.io/badge/Version-1.1.1-00D4FF?style=for-the-badge&logo=android&logoColor=white)](app/build.gradle.kts)
+[![Version](https://img.shields.io/badge/Version-1.1.2-00D4FF?style=for-the-badge&logo=android&logoColor=white)](app/build.gradle.kts)
 [![Android](https://img.shields.io/badge/Android-24%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://developer.android.com/)
 [![Kotlin](https://img.shields.io/badge/Kotlin-Android-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](https://kotlinlang.org/)
 [![Jetpack Compose](https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)](https://developer.android.com/compose)
@@ -66,7 +66,7 @@ PayAlert is an **Android payment notification app**, **bank SMS alert app**, **U
 
 | **CURRENT RELEASE** | **LOCAL SIGNAL LOOP** | **DEDUP HORIZON** | **REMOTE FALLBACK** |
 |:---:|:---:|:---:|:---:|
-| `v1.1.1` · code `3` | SMS + notifications → Room → TTS | 5 min exact · 10 min semantic | ~30 sec polling |
+| `v1.1.2` · code `4` | SMS + notifications → Room → TTS | 5 min exact · 10 min semantic | ~30 sec polling |
 
 </div>
 
@@ -394,7 +394,7 @@ Employee mode is activated after joining an owner's team.
 
 | Tool | Required setup |
 |---|---|
-| App release | **v1.1.1** · `versionCode 3` · configured in `app/build.gradle.kts`. |
+| App release | **v1.1.2** · `versionCode 4` · configured in `app/build.gradle.kts`. |
 | Java | Full **JDK 25**, including `jlink`; `.java-version` pins `25`. |
 | Android SDK | Command-line tools plus platform `android-37.0` and build tools `36.0.0`. |
 | Gradle | Use the checked-in Gradle wrapper; it pins Gradle `9.6.0`. |
@@ -415,6 +415,55 @@ Install the Android SDK packages if needed:
 sdkmanager "platform-tools" "platforms;android-37.0" "build-tools;36.0.0"
 sdkmanager --licenses
 ```
+
+### Configure optional Supabase team pairing
+
+Supabase is optional. Local payment detection, history, cashbook, reminders, QR, export, backup,
+and announcements work without it. Configure the public project URL and publishable key only if you
+want team pairing and encrypted owner-to-employee relay.
+
+The Android build accepts the preferred Gradle names below. It also accepts the equivalent
+`NEXT_PUBLIC_*` names for compatibility with existing environment files. Only publishable/anonymous
+client keys are allowed; never use a `service_role` or `sb_secret_` key in the Android build.
+
+#### Option A: ignored local `secrets.properties` file
+
+Create `secrets.properties` in the repository root. It is git-ignored and is read automatically by
+Gradle:
+
+```properties
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key_here
+```
+
+#### Option B: environment variables or Gradle properties
+
+```bash
+export SUPABASE_URL="https://your-project.supabase.co"
+export SUPABASE_PUBLISHABLE_KEY="sb_publishable_your_key_here"
+make build
+```
+
+Or pass them for one build without exporting them:
+
+```bash
+./gradlew --offline :app:assembleDebug \
+  -PSUPABASE_URL="https://your-project.supabase.co" \
+  -PSUPABASE_PUBLISHABLE_KEY="sb_publishable_your_key_here"
+```
+
+If your existing setup uses the `NEXT_PUBLIC_*` names, export those instead:
+
+```bash
+export NEXT_PUBLIC_SUPABASE_URL="https://your-project.supabase.co"
+export NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="sb_publishable_your_key_here"
+make build
+```
+
+After configuring a project, apply `supabase/schema.sql`, `supabase/team_pairing.sql`, and—if
+forwarding is needed—`supabase/encrypted_relay.sql`. Enable Google sign-in in Supabase Auth and use
+the redirect URL `com.vivekray898.payalert://auth/callback`. The Team & devices screen reports when
+the build has no Supabase configuration.
 
 ### Fast local build
 
@@ -455,7 +504,7 @@ The project keeps dependency locking in `app/gradle.lockfile`. Do not install pr
 
 <div align="center">
 
-| `v1.1.1` | `versionCode 3` | local-first | Android 24+ |
+| `v1.1.2` | `versionCode 4` | local-first | Android 24+ |
 |:---:|:---:|:---:|:---:|
 | current app release | upgrade-safe increment | offline core | notification + SMS paths |
 

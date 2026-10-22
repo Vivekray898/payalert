@@ -22,11 +22,24 @@ val localSecrets = Properties().apply {
 }
 
 fun publicBuildConfigString(name: String): String {
-    val value = providers.gradleProperty(name)
-        .orElse(providers.environmentVariable(name))
-        .orElse(localSecrets.getProperty(name, ""))
-        .getOrElse("")
-        .trim()
+    val alias = when (name) {
+        "SUPABASE_URL" -> "NEXT_PUBLIC_SUPABASE_URL"
+        "SUPABASE_PUBLISHABLE_KEY" -> "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
+        else -> null
+    }
+    val value = if (alias == null) {
+        providers.gradleProperty(name)
+            .orElse(providers.environmentVariable(name))
+            .orElse(localSecrets.getProperty(name, ""))
+            .getOrElse("")
+    } else {
+        providers.gradleProperty(name)
+            .orElse(providers.environmentVariable(name))
+            .orElse(providers.gradleProperty(alias))
+            .orElse(providers.environmentVariable(alias))
+            .orElse(localSecrets.getProperty(name, localSecrets.getProperty(alias, "")))
+            .getOrElse("")
+    }.trim()
     if (name == "SUPABASE_PUBLISHABLE_KEY" && value.isNotEmpty()) {
         val publicKey = value.matches(Regex("sb_publishable_[A-Za-z0-9_-]{6,}")) || runCatching {
             val parts = value.split('.')
@@ -63,8 +76,8 @@ android {
         applicationId = "com.vivekray898.payalert"
         minSdk = 24
         targetSdk = 37
-        versionCode = 3
-        versionName = "1.1.1"
+        versionCode = 4
+        versionName = "1.1.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
