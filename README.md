@@ -1,18 +1,80 @@
-# PayAlert
+# PayAlert — Android Payment Alert App
 
 [![Android 24+](https://img.shields.io/badge/Android-24%2B-3DDC84?logo=android&logoColor=white)](https://developer.android.com/about/versions/)
 [![Kotlin](https://img.shields.io/badge/Kotlin-Android-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org/)
 [![Jetpack Compose](https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4?logo=jetpackcompose&logoColor=white)](https://developer.android.com/compose)
 [![Supabase](https://img.shields.io/badge/Optional%20relay-Supabase-3ECF8E?logo=supabase&logoColor=white)](https://supabase.com/)
 
-PayAlert is a **local-first Android payment signal app** for counters, shops, family businesses, and
-teams. It turns supported payment notifications and bank SMS messages into clear spoken alerts,
-local history, cashbook entries, reminders, and optional encrypted owner-to-employee delivery.
+PayAlert is a **local-first Android payment alert app** for counters, shops, family businesses, and
+teams. It turns supported bank SMS messages and UPI/payment notifications into clear spoken payment
+alerts, local transaction history, cashbook entries, payment reminders, and optional encrypted
+owner-to-employee delivery.
+
+You do **not** need Android Studio, Java, Gradle, Git, Supabase, or programming knowledge to use the
+ready-to-install app. Download the APK, install it on Android, grant the requested permissions, and
+start receiving spoken payment notifications.
 
 > PayAlert is a signal layer, not a payment processor. Android exposes notifications and SMS messages,
 > not a universal settlement API. Always verify important payments with the bank or payment provider.
 
-## Features
+## Quick navigation
+
+- **[Part 1 — For everyday users](#part-1--for-everyday-users):** download, install, configure, and use PayAlert without compiling anything.
+- **[Part 2 — For developers](#part-2--for-developers):** build from source, run tests, configure Supabase, and deploy the optional relay.
+
+---
+
+## Part 1 — For everyday users
+
+### Download the ready-to-use Android app
+
+Choose either installation method. Both are intended for normal Android users; neither requires a
+source checkout or a local build.
+
+#### Recommended: one-tap BetaDrop installation
+
+Open **[Install PayAlert with BetaDrop](https://betadrop.app/i/XrKM4v)** on your Android phone and
+follow the install prompt. BetaDrop provides a guided install page for PayAlert.
+
+1. Open the link on the Android phone where you want to use PayAlert.
+2. Tap the install/download button.
+3. If Android asks for permission to install from your browser or file manager, enable **Allow from
+   this source**, then return to the installer.
+4. Tap **Install**, open PayAlert, and complete onboarding.
+
+#### Alternative: download the APK from GitHub
+
+Open **[PayAlert Releases on GitHub](https://github.com/Vivekray898/payalert/releases/latest)** and
+download the `.apk` file from the latest published release's **Assets** section.
+
+1. Open the release page on your Android phone or download the APK on a computer and transfer it to
+   the phone.
+2. Tap the downloaded `.apk` file.
+3. If Android blocks the install, allow your browser or file manager to install unknown apps, then
+   retry the APK.
+4. Tap **Install**, open PayAlert, and complete onboarding.
+
+The GitHub release page is the right place to check for new APK versions. You do not need to download
+the source code, install a compiler, or run any terminal command.
+
+> **GitHub APK note:** the currently published GitHub release artifact is unsigned, so Android may
+> show an install warning. For the smoothest guided installation, use the BetaDrop link above.
+
+### What normal users get
+
+- **Spoken payment notifications:** announce supported bank and UPI payment alerts using Android
+  Text-to-Speech, chime, and vibration.
+- **Payment history:** keep searchable local records with filters, details, analytics, and export.
+- **Cashbook:** record money in and money out, with categories, notes, reports, and CSV export.
+- **Payment reminders:** create one-time or repeating upcoming-payment reminders.
+- **Payment QR:** create and share a UPI payment link or QR code.
+- **Optional team sharing:** pair an owner phone with employee phones and forward eligible credits
+  through an encrypted relay.
+
+Core features work locally without an account or subscription. Team sharing is optional and requires
+additional Google/Supabase setup.
+
+### Product features
 
 | Area | What PayAlert provides |
 |---|---|
@@ -28,7 +90,62 @@ local history, cashbook entries, reminders, and optional encrypted owner-to-empl
 | Offline-first core | Detection, history, cashbook, reminders, QR, export, backup, and announcements work without an account. |
 | Diagnostics | Inspect permissions, service health, parser results, relay state, and recovery actions. |
 
-## Architecture
+### Use the app
+
+#### Install
+
+Download an APK from the project's [GitHub Releases](https://github.com/vivekray898/payalert/releases)
+page, install it on an Android 24+ device, and open PayAlert. A release APK is not required for local
+development; developers can build the debug APK using the instructions below.
+
+#### First launch
+
+1. Complete onboarding.
+2. Enable **Notification access** so PayAlert can inspect supported payment notifications.
+3. Grant **SMS permission** if bank SMS detection is needed.
+4. Allow PayAlert notifications.
+5. Disable battery optimization for PayAlert if the device aggressively stops background services.
+6. Open **Settings → Diagnostics** and run the pipeline check.
+7. Verify a small test payment against the bank or payment provider before relying on the alert.
+
+#### Owner and employee devices
+
+- **Owner:** detects and announces supported local payments, stores local history, and can forward
+  eligible credits to paired employees.
+- **Employee:** after pairing, intentionally stops local SMS/payment-notification detection and instead
+  fetches, decrypts, stores, and announces owner-forwarded payments.
+- Pairing shares device/team metadata and relay routing state. It does not merge local payment history
+  or cashbook data.
+
+#### Pair two devices
+
+#### On the owner device
+
+1. Open **Settings → Team & devices**.
+2. Sign in with Google and choose **I'm the owner**.
+3. Tap **Create pairing code**.
+4. Share the six-digit code privately. It is single-use and expires after 10 minutes.
+
+#### On the employee device
+
+1. Open **Settings → Team & devices**.
+2. Sign in with Google and choose **I'm an employee**.
+3. Enter all six digits and tap **Pair this device**.
+4. If the code is rejected, expired, or already used, ask the owner to create a fresh code.
+
+After pairing, the owner can refresh the device list, and either device can leave or remove the
+connection. FCM and the Supabase webhook are required for the fastest remote wake-up path; the app
+also has polling and WorkManager recovery paths.
+
+---
+
+## Part 2 — For developers
+
+The rest of this README is for contributors, maintainers, and teams that need to build PayAlert from
+source or operate the optional Supabase relay. If you only want to use the app, the download and
+installation instructions above are all you need.
+
+### Architecture
 
 ```mermaid
 flowchart LR
@@ -52,56 +169,9 @@ routing metadata and opaque encrypted envelopes, while the employee device fetch
 own copy locally. FCM carries only a message ID used to wake the employee app; it does not carry the
 payment payload.
 
-## Use the app
+### Build from source
 
-### Install
-
-Download an APK from the project's [GitHub Releases](https://github.com/vivekray898/payalert/releases)
-page, install it on an Android 24+ device, and open PayAlert. A release APK is not required for local
-development; developers can build the debug APK using the instructions below.
-
-### First launch
-
-1. Complete onboarding.
-2. Enable **Notification access** so PayAlert can inspect supported payment notifications.
-3. Grant **SMS permission** if bank SMS detection is needed.
-4. Allow PayAlert notifications.
-5. Disable battery optimization for PayAlert if the device aggressively stops background services.
-6. Open **Settings → Diagnostics** and run the pipeline check.
-7. Verify a small test payment against the bank or payment provider before relying on the alert.
-
-### Owner and employee devices
-
-- **Owner:** detects and announces supported local payments, stores local history, and can forward
-  eligible credits to paired employees.
-- **Employee:** after pairing, intentionally stops local SMS/payment-notification detection and instead
-  fetches, decrypts, stores, and announces owner-forwarded payments.
-- Pairing shares device/team metadata and relay routing state. It does not merge local payment history
-  or cashbook data.
-
-### Pair two devices
-
-#### On the owner device
-
-1. Open **Settings → Team & devices**.
-2. Sign in with Google and choose **I'm the owner**.
-3. Tap **Create pairing code**.
-4. Share the six-digit code privately. It is single-use and expires after 10 minutes.
-
-#### On the employee device
-
-1. Open **Settings → Team & devices**.
-2. Sign in with Google and choose **I'm an employee**.
-3. Enter all six digits and tap **Pair this device**.
-4. If the code is rejected, expired, or already used, ask the owner to create a fresh code.
-
-After pairing, the owner can refresh the device list, and either device can leave or remove the
-connection. FCM and the Supabase webhook are required for the fastest remote wake-up path; the app
-also has polling and WorkManager recovery paths.
-
-## Build from source
-
-### Requirements
+#### Requirements
 
 | Tool | Required version or setup |
 |---|---|
@@ -114,7 +184,7 @@ also has polling and WorkManager recovery paths.
 The Android build uses Java 17 bytecode targets, but the Gradle/Android toolchain requires JDK 25 in
 this repository. Do not add a machine-specific `org.gradle.java.home` path to tracked files.
 
-### Clone and configure the SDK
+#### Clone and configure the SDK
 
 ```bash
 git clone https://github.com/vivekray898/payalert.git
@@ -141,7 +211,7 @@ sdk.dir=/absolute/path/to/android-sdk
 
 `local.properties` is ignored and must not be committed.
 
-### Build and install
+#### Build and install
 
 The first build downloads the locked project dependencies. The repository's `Makefile` provides the
 canonical commands:
@@ -169,7 +239,7 @@ Equivalent Gradle commands are:
 ./gradlew --no-daemon :app:assembleDebugAndroidTest
 ```
 
-### Optional Supabase configuration
+#### Optional Supabase configuration
 
 Core local features do not need Supabase, Firebase, Google sign-in, or any credentials. Configure the
 optional team and encrypted relay only when you need owner-to-employee delivery.
@@ -213,7 +283,7 @@ For a one-off build, pass project properties instead:
 aliases. `.env.example` documents the same values, but Gradle does not automatically parse dotenv
 files.
 
-### Supabase database and authentication
+#### Supabase database and authentication
 
 The canonical forward migrations are in `supabase/migrations/`. With the Supabase CLI installed:
 
@@ -233,7 +303,7 @@ The app opens the external browser for sign-in and handles the callback automati
 Firebase configuration file for this Android application as `app/google-services.json` before building
 with FCM enabled.
 
-### Deploy the relay Edge Function
+#### Deploy the relay Edge Function
 
 The optional relay uses the `relay-notify` Edge Function and a Supabase Database Webhook. Set these
 **server-only** secrets; do not write them to this repository or the APK:
@@ -261,7 +331,7 @@ It sends a high-priority data-only FCM wake-up containing only a message ID; the
 encrypted envelope through the authenticated RPC. See [`supabase/README.md`](supabase/README.md) for
 the full relay setup and security model.
 
-## Checks and tests
+### Checks and tests
 
 Use the single Makefile entry points when possible:
 
@@ -289,7 +359,7 @@ node --test supabase/functions/relay-notify/tests/*.test.mjs
 The project keeps Android dependency locks in `app/gradle.lockfile`. Do not install project
 dependencies globally.
 
-## Docker build
+### Docker build
 
 The repository includes a reproducible Android build image. The Dockerfile installs JDK 25, the
 required Android SDK packages, and the project dependencies. Android's Linux build tools target
@@ -311,7 +381,7 @@ docker build --platform linux/amd64 \
   -t payalert-build .
 ```
 
-## Repository layout
+### Repository layout
 
 ```text
 app/src/main/java/com/vivekray898/payalert/
@@ -329,7 +399,7 @@ supabase/
 └── README.md         relay deployment details
 ```
 
-## Privacy and security
+### Privacy and security
 
 - Core detection and records are local-first and do not require an account.
 - Device-generated relay keys stay on the devices. The relay uses an X25519-derived shared secret and
@@ -339,7 +409,7 @@ supabase/
 - Do not commit `secrets.properties`, `.env` files, FCM service-account JSON, private keys, or tokens.
 - If a credential is exposed, revoke it at the provider immediately and replace it outside Git history.
 
-## Known limitations
+### Known limitations
 
 Android payment detection depends on the wording and behavior of each bank, UPI app, notification
 provider, and device manufacturer. In particular:
@@ -353,7 +423,7 @@ provider, and device manufacturer. In particular:
 When an alert looks wrong, inspect **History** and **Settings → Diagnostics**, compare the UTR/RRN and
 bank statement, and do not use a spoken alert alone as proof of settlement.
 
-## Troubleshooting
+### Troubleshooting
 
 ### Gradle cannot find Java
 
@@ -386,7 +456,7 @@ Check the employee device's notification permission and battery settings, the de
 Database Webhook header, Edge Function logs, and the `relay-notify` deployment. The employee polling
 and WorkManager paths are recovery mechanisms, not a replacement for a correctly configured FCM wake-up.
 
-## License
+### License
 
 No license is currently declared in this repository. Treat the source as all-rights-reserved unless
 the project owner adds a license file.
