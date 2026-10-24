@@ -48,7 +48,11 @@ class RelayEngine(
     private val outbound: OwnerOutboundQueueDao,
     private val received: ReceivedAnnouncementDao,
     private val clock: () -> Long = System::currentTimeMillis,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val trace: RelayTrace = RelayTrace.process,
+    /** Durable local payment history used to recover a handoff interrupted before queue insertion. */
+    private val recentOwnerPayments: suspend (from: Long, to: Long) -> List<PaymentEvent> =
+        { _, _ -> emptyList() }
 ) {
 
     private val _status = MutableStateFlow(RelayStatus())
@@ -132,8 +136,15 @@ class RelayEngine(
     /** Called after a payment is stored locally. Only the owner forwards, and only credits. */
     fun onStored(event: PaymentEvent) {
         if (event.kind != RelayPaymentPayload.CREDIT) return
-        val current = context ?: return
+        val current = context ?: run {
+            // The local detector can be alive before the authenticated team snapshot has been
+            // restored. This marker is what distinguishes "the payment never reached the relay"
+            // from a webhook/FCM/employee-side delay.
+            trace.record(RelayTrace.Stage.OWNER_CONTEXT_MISSING)
+            return
+        }
         if (!current.canForward || !transport.configured) return
+        trace.record(RelayTrace.Stage.OWNER_EVENT_ACCEPTED)
         scope.launch {
             try {
                 val queued = forwarder.offer(current, event)
@@ -143,10 +154,49 @@ class RelayEngine(
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
+            } catch (_: RelayTransportException) {
+                // The relay is temporarily unavailable. Keep the queued payment retryable and
+                // avoid presenting a transport outage as a permanent delivery failure.
+                updateStatus { copy(lastError = SAFE_OFFLINE_ERROR) }
             } catch (_: Exception) {
                 Log.w(TAG, "Relay forwarding failed")
                 updateStatus { copy(lastError = SAFE_DELIVERY_ERROR) }
             }
+        }
+    }
+
+    /**
+     * Replays only the short recent window from durable local history.
+     *
+     * The detector stores the payment before it launches the relay hand-off coroutine. If the
+     * process dies in that gap, the owner queue never receives a row. A bounded recovery scan on
+     * app/service start closes that gap without replaying the whole payment history. Deterministic
+     * route message IDs and the existing queue primary key keep an already-forwarded event idempotent.
+     */
+    suspend fun recoverRecentOwnerPayments(
+        now: Long = clock(),
+        windowMillis: Long = RECOVERY_WINDOW_MILLIS
+    ) {
+        val current = context ?: return
+        if (!current.canForward || !transport.configured || current.employees.isEmpty()) return
+        val from = (now - windowMillis).coerceAtLeast(0L)
+        val events = try {
+            recentOwnerPayments(from, now)
+        } catch (_: Exception) {
+            return
+        }
+        for (event in events) {
+            if (event.kind != RelayPaymentPayload.CREDIT) continue
+            try {
+                forwarder.offer(current, event)
+            } catch (_: Exception) {
+                // The normal pump owns retries; one malformed recovery row must not stop the scan.
+            }
+        }
+        try {
+            forwarder.flush(current)
+        } catch (_: Exception) {
+            // The durable owner queue retains failed rows for the next pass.
         }
     }
 
@@ -333,6 +383,8 @@ class RelayEngine(
     companion object {
         private const val TAG = "PayAlert"
         private const val POLL_INTERVAL_MILLIS = 30_000L
+        /** Recovery is intentionally bounded so a later pairing does not replay old history. */
+        private const val RECOVERY_WINDOW_MILLIS = 5L * 60_000L
 
         /** How often the shared relay's expired envelopes are swept. */
         private const val CLEANUP_INTERVAL_MILLIS = 5L * 60_000L

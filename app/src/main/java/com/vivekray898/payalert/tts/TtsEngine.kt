@@ -15,6 +15,8 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import com.vivekray898.payalert.R
+import com.vivekray898.payalert.relay.RelayTrace
+import com.vivekray898.payalert.relay.RelayTrace.Stage
 import com.vivekray898.payalert.settings.AppSettings
 import com.vivekray898.payalert.settings.SettingsSnapshot
 import com.vivekray898.payalert.settings.SoundMode
@@ -36,7 +38,8 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 class TtsEngine(
     context: Context,
-    private val settings: AppSettings
+    private val settings: AppSettings,
+    private val trace: RelayTrace = RelayTrace.process
 ) {
     private val appContext = context.applicationContext
     private val soundExecutor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
@@ -74,6 +77,20 @@ class TtsEngine(
         val snapshot = settings.state.value
         submitSoundTask {
             announceInternal(text, snapshot, preview = false, mode = snapshot.soundMode)
+        }
+    }
+
+    /** Relay-only entry point keeps existing one-argument announce method references compatible. */
+    fun announceRelay(messageId: String, text: String) {
+        if (text.isBlank()) return
+        val relayMessageId = RelayTrace.messageUuid(messageId)
+        traceRelay(Stage.TTS_REQUESTED, relayMessageId)
+        val snapshot = settings.state.value
+        submitSoundTask {
+            announceInternal(
+                text, snapshot, preview = false, mode = snapshot.soundMode,
+                relayMessageId = relayMessageId
+            )
         }
     }
 
@@ -150,11 +167,13 @@ class TtsEngine(
         text: String,
         snapshot: SettingsSnapshot,
         preview: Boolean,
-        mode: SoundMode
+        mode: SoundMode,
+        relayMessageId: String? = null
     ) {
         synchronized(stateLock) {
             if (shutDown) return
             val decision = decidePlayback(mode, snapshot.vibrate)
+            if (!decision.speak) traceRelay(Stage.TTS_SKIPPED, relayMessageId)
             logTransition(
                 "decision",
                 mode,
@@ -175,11 +194,12 @@ class TtsEngine(
                         speakAfter = decision.speak,
                         volume = snapshot.volume.coerceIn(0f, 1f),
                         preview = preview,
-                        mode = mode
+                        mode = mode,
+                        relayMessageId = relayMessageId
                     )
                 )
             } else if (decision.speak) {
-                speakInternal(text, preview, mode, reason = "mode")
+                speakInternal(text, preview, mode, reason = "mode", relayMessageId = relayMessageId)
             } else {
                 logTransition("silent", mode, preview)
             }
@@ -209,6 +229,8 @@ class TtsEngine(
                             val pending = pendingSpeech.removeFirst()
                             speakNowLocked(pending)
                         }
+                    } else {
+                        pendingSpeech.forEach { traceRelay(Stage.TTS_INIT_FAILED, it.relayMessageId) }
                     }
                 }
             }
@@ -219,14 +241,15 @@ class TtsEngine(
         text: String,
         preview: Boolean,
         mode: SoundMode?,
-        reason: String
+        reason: String,
+        relayMessageId: String? = null
     ) {
         synchronized(stateLock) {
             val speechText = SpeechTextNormalizer.forSpeech(text)
             if (shutDown || speechText.isBlank()) return
             logTransition("speech_requested", mode, preview, "reason=$reason")
             ensureInitializedLocked()
-            val pending = PendingSpeech(speechText, preview, mode)
+            val pending = PendingSpeech(speechText, preview, mode, relayMessageId)
             if (_ready.value) {
                 speakNowLocked(pending)
             } else {
@@ -250,6 +273,7 @@ class TtsEngine(
         logEvent("speak_start", pending.mode, pending.preview)
         try {
             // Flush stale speech so a current payment is not delayed by an older utterance.
+            traceRelay(Stage.TTS_SPEAK_REQUESTED, pending.relayMessageId)
             val result = tts.speak(
                 pending.text,
                 TextToSpeech.QUEUE_FLUSH,
@@ -258,17 +282,15 @@ class TtsEngine(
             )
             if (result == TextToSpeech.ERROR) {
                 utteranceModes.remove(utteranceId)
+                traceRelay(Stage.TTS_SUBMIT_FAILED, pending.relayMessageId)
                 logTransition("speech_failed", pending.mode, pending.preview, "result=ERROR")
             } else {
                 logTransition("speech_queued", pending.mode, pending.preview, "result=$result")
             }
-        } catch (error: RuntimeException) {
-            logTransition(
-                "speech_failed",
-                pending.mode,
-                pending.preview,
-                "error=${error.javaClass.simpleName}"
-            )
+        } catch (_: RuntimeException) {
+            utteranceModes.remove(utteranceId)
+            traceRelay(Stage.TTS_SUBMIT_FAILED, pending.relayMessageId)
+            logTransition("speech_failed", pending.mode, pending.preview)
         }
     }
 
@@ -307,7 +329,10 @@ class TtsEngine(
             logTransition("chime_load_failed", request.mode, request.preview)
             if (request.speakAfter) {
                 // The voice path remains useful when the bundled chime cannot be opened.
-                speakInternal(request.text, request.preview, request.mode, reason = "chime_fallback")
+                speakInternal(
+                    request.text, request.preview, request.mode, reason = "chime_fallback",
+                    relayMessageId = request.relayMessageId
+                )
             }
             return
         }
@@ -338,14 +363,9 @@ class TtsEngine(
             chimePlayer = player
             logTransition("chime_loaded", null, preview, "resource=kaching")
             player
-        }.getOrElse { error ->
+        }.getOrElse {
             runCatching { player.release() }
-            logTransition(
-                "chime_load_failed",
-                null,
-                preview,
-                "error=${error.javaClass.simpleName}"
-            )
+            logTransition("chime_load_failed", null, preview)
             null
         }
     }
@@ -369,19 +389,17 @@ class TtsEngine(
                 request.preview,
                 "volume=${request.volume}"
             )
-        } catch (error: RuntimeException) {
+        } catch (_: RuntimeException) {
             activeChime = null
             chimePlayer?.setOnCompletionListener(null)
             chimePlayer?.runCatching { release() }
             chimePlayer = null
-            logTransition(
-                "chime_start_failed",
-                request.mode,
-                request.preview,
-                "error=${error.javaClass.simpleName}"
-            )
+            logTransition("chime_start_failed", request.mode, request.preview)
             if (request.speakAfter) {
-                speakInternal(request.text, request.preview, request.mode, reason = "chime_fallback")
+                speakInternal(
+                    request.text, request.preview, request.mode, reason = "chime_fallback",
+                    relayMessageId = request.relayMessageId
+                )
             }
             val nextPlayer = createChimePlayer(request.preview)
             if (nextPlayer != null) startNextChime(nextPlayer)
@@ -427,7 +445,10 @@ class TtsEngine(
             if (request.speechTriggered) return
             request.speechTriggered = true
             request.speechRunnable?.let(soundHandler::removeCallbacks)
-            speakInternal(request.text, request.preview, request.mode, reason = reason)
+            speakInternal(
+                request.text, request.preview, request.mode, reason = reason,
+                relayMessageId = request.relayMessageId
+            )
         }
     }
 
@@ -454,13 +475,8 @@ class TtsEngine(
                 vibrator.vibrate(120)
             }
             logTransition("vibration_started", mode, preview)
-        } catch (error: RuntimeException) {
-            logTransition(
-                "vibration_failed",
-                mode,
-                preview,
-                "error=${error.javaClass.simpleName}"
-            )
+        } catch (_: RuntimeException) {
+            logTransition("vibration_failed", mode, preview)
         }
     }
 
@@ -474,6 +490,11 @@ class TtsEngine(
 
     private fun localeFor(tag: String): Locale =
         if (tag.isBlank()) Locale.getDefault() else Locale.forLanguageTag(tag)
+
+    private fun traceRelay(stage: Stage, messageId: String?) {
+        // Preview, warmup and ordinary local speech have no relay message correlation.
+        if (messageId != null) trace.record(stage, clientMessageId = messageId)
+    }
 
     private fun logTransition(
         transition: String,
@@ -504,6 +525,7 @@ class TtsEngine(
     private val utteranceListener = object : UtteranceProgressListener() {
         override fun onStart(utteranceId: String?) {
             val info = utteranceId?.let { synchronized(stateLock) { utteranceModes[it] } }
+            traceRelay(Stage.TTS_AUDIO_START, info?.pending?.relayMessageId)
             val t = SystemClock.elapsedRealtime()
             val leadMs = info?.let { (t - it.speakStartMs).coerceAtLeast(0L) }
             if (leadMs != null) lastTtsOnsetLatencyMs = leadMs
@@ -517,17 +539,20 @@ class TtsEngine(
 
         override fun onDone(utteranceId: String?) {
             val info = utteranceId?.let { synchronized(stateLock) { utteranceModes.remove(it) } }
+            traceRelay(Stage.TTS_AUDIO_DONE, info?.pending?.relayMessageId)
             logEvent("speak_end", info?.pending?.mode, info?.pending?.preview ?: false)
         }
 
         @Deprecated("Deprecated in the Android API")
         override fun onError(utteranceId: String?) {
             val info = utteranceId?.let { synchronized(stateLock) { utteranceModes.remove(it) } }
+            traceRelay(Stage.TTS_AUDIO_ERROR, info?.pending?.relayMessageId)
             logEvent("speak_error", info?.pending?.mode, info?.pending?.preview ?: false)
         }
 
         override fun onError(utteranceId: String?, errorCode: Int) {
             val info = utteranceId?.let { synchronized(stateLock) { utteranceModes.remove(it) } }
+            traceRelay(Stage.TTS_AUDIO_ERROR, info?.pending?.relayMessageId)
             logEvent(
                 "speak_error",
                 info?.pending?.mode,
@@ -535,12 +560,19 @@ class TtsEngine(
                 "code=$errorCode"
             )
         }
+
+        override fun onStop(utteranceId: String?, interrupted: Boolean) {
+            val info = utteranceId?.let { synchronized(stateLock) { utteranceModes.remove(it) } }
+            // QUEUE_FLUSH/stop is not successful completion and may occur before onStart.
+            traceRelay(Stage.TTS_STOPPED, info?.pending?.relayMessageId)
+        }
     }
 
     private data class PendingSpeech(
         val text: String,
         val preview: Boolean,
-        val mode: SoundMode?
+        val mode: SoundMode?,
+        val relayMessageId: String? = null
     )
 
     private data class UtteranceInfo(
@@ -554,6 +586,7 @@ class TtsEngine(
         val volume: Float,
         val preview: Boolean,
         val mode: SoundMode,
+        val relayMessageId: String? = null,
         var speechTriggered: Boolean = false,
         var speechRunnable: Runnable? = null
     )

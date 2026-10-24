@@ -11,9 +11,10 @@
 --     and display_name/full_name/name metadata populate public.users. Registers
 --     or refreshes ONLY the caller's device; updates last_seen_at and reconciles
 --     its legacy paired_with_device_id from the authoritative membership table.
---   team_create_invite(uuid) -> {code:"12 UPPERCASE HEX",expires_at:timestamptz}
+--   team_create_invite(uuid) -> {code:"6 decimal digits",expires_at:timestamptz}
 --     Rotates the owner's previous code. One outstanding code per owner DEVICE,
---     valid for 10 minutes, single use, 48 random bits, SHA-256 stored only.
+--     valid for 10 minutes, single use, 32 bits of CSPRNG entropy mod 10^6,
+--     SHA-256 stored only.
 --   team_cancel_invite(uuid) -> void (idempotent)
 --   team_join(uuid, text) -> jsonb: SQL NULL / JSON null on success (like void).
 --     IMPORTANT: inspect a non-null result for {error:...}; returning errors
@@ -134,9 +135,18 @@ BEGIN
      WHERE e.extname = 'pgcrypto';
     EXECUTE pg_catalog.format(
         'CREATE OR REPLACE FUNCTION team_private.new_invite_code() RETURNS text '
-        'LANGUAGE sql VOLATILE SET search_path = '''' AS %L',
+        'LANGUAGE plpgsql VOLATILE SET search_path = '''' AS %L',
         pg_catalog.format(
-            'SELECT pg_catalog.upper(pg_catalog.encode(%I.gen_random_bytes(6), ''hex''))',
+            $body$
+DECLARE
+    v_bytes bytea;
+    v_int bigint;
+BEGIN
+    v_bytes := %I.gen_random_bytes(4);
+    v_int := ('x' || pg_catalog.encode(v_bytes, 'hex'))::bit(32)::bigint;
+    RETURN pg_catalog.lpad((v_int %% 1000000)::text, 6, '0');
+END
+$body$,
             v_schema));
 END
 $crypto$;
@@ -303,8 +313,8 @@ BEGIN
     IF p_code IS NULL OR pg_catalog.octet_length(p_code) > 64 THEN
         RETURN pg_catalog.jsonb_build_object('error', 'invalid_invite');
     END IF;
-    v_code := pg_catalog.upper(pg_catalog.btrim(p_code));
-    IF v_code !~ '^[0-9A-F]{12}$' THEN
+    v_code := pg_catalog.btrim(p_code);
+    IF v_code !~ '^[0-9]{6}$' THEN
         RETURN pg_catalog.jsonb_build_object('error', 'invalid_invite');
     END IF;
     v_hash := pg_catalog.sha256(pg_catalog.convert_to(v_code, 'UTF8'));

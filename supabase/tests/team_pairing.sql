@@ -213,18 +213,24 @@ SELECT pg_temp.assert_true((SELECT device_name = 'Owner tablet' FROM public.devi
 
 -- Self code fails without consuming; client never sees the stored hash.
 INSERT INTO team_pairing_test_state VALUES ('invite', public.team_create_invite(:'owner'));
-SELECT pg_temp.assert_true((SELECT (value ->> 'code') ~ '^[0-9A-F]{12}$'
+SELECT pg_temp.assert_true((SELECT (value ->> 'code') ~ '^[0-9]{6}$'
     AND (value ->> 'expires_at')::timestamptz BETWEEN clock_timestamp() + interval '9 minutes'
         AND clock_timestamp() + interval '10 minutes'
     FROM team_pairing_test_state WHERE key = 'invite'), 'secure code shape and ten-minute TTL');
 SELECT pg_temp.assert_true(public.team_join(:'owner',
     (SELECT value ->> 'code' FROM team_pairing_test_state WHERE key = 'invite'))
     = '{"error":"self_pairing"}'::jsonb, 'self pairing rejected');
+SELECT pg_temp.assert_true(public.team_join(:'owner', '000000') = '{"error":"invalid_invite"}'::jsonb, 'invalid 6-digit code rejected');
+SELECT pg_temp.assert_true(public.team_join(:'owner', '12345') = '{"error":"invalid_invite"}'::jsonb, '5-digit code rejected');
+SELECT pg_temp.assert_true(public.team_join(:'owner', 'ABCDEF12') = '{"error":"invalid_invite"}'::jsonb, 'letter code rejected');
 RESET ROLE;
 SELECT pg_temp.assert_true((SELECT i.code_hash = sha256(convert_to(s.value ->> 'code', 'UTF8'))
     AND octet_length(i.code_hash) = 32 FROM team_private.invites i
     CROSS JOIN team_pairing_test_state s WHERE i.owner_device_id = :'owner' AND s.key = 'invite'),
     'only the SHA-256 code hash is stored');
+SELECT pg_temp.assert_true((SELECT length(s.value ->> 'code') = 6
+    AND s.value ->> 'code' ~ '^[0-9]{6}$'
+    FROM team_pairing_test_state s WHERE s.key = 'invite'), 'new_invite_code produces a 6-digit decimal string');
 SELECT pg_temp.assert_true(NOT EXISTS (SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'team_private' AND table_name = 'invites'
     AND column_name IN ('code', 'invite_code')), 'no plaintext code column');

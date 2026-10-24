@@ -1,6 +1,9 @@
 package com.vivekray898.payalert.relay
 
 import android.util.Log
+import com.vivekray898.payalert.relay.RelayTrace.Stage
+import java.util.UUID
+import kotlinx.coroutines.CancellationException
 
 /** What one receive pass did, for diagnostics and the re-pair banner. */
 data class RelayReceiveResult(
@@ -30,7 +33,10 @@ class EmployeeReceiver(
     private val announce: (String) -> Unit,
     private val clock: () -> Long = System::currentTimeMillis,
     /** Local, already-authenticated user-visible notification; never called for bad ciphertext. */
-    private val notify: (messageId: String, text: String) -> Unit = { _, _ -> }
+    private val notify: (messageId: String, text: String) -> Unit = { _, _ -> },
+    /** The stable client UUID follows the speech request; legacy callers still use [announce]. */
+    private val announceRelay: (messageId: String, text: String) -> Unit = { _, text -> announce(text) },
+    private val trace: RelayTrace = RelayTrace.process
 ) {
 
     /**
@@ -60,7 +66,19 @@ class EmployeeReceiver(
             refreshOwnerKey()?.let { recovered = recoverRetained(context, keyPair, it) }
         }
         val now = clock()
-        val messages = transport.fetch(FETCH_LIMIT)
+        // A batch has no message IDs until fetch returns. Link its clocks to each returned envelope.
+        val fetchId = UUID.randomUUID()
+        trace.record(Stage.FETCH_START, fetchId = fetchId)
+        val messages = try {
+            transport.fetch(FETCH_LIMIT)
+        } catch (cancelled: CancellationException) {
+            trace.record(Stage.FETCH_CANCELLED, fetchId = fetchId)
+            throw cancelled
+        } catch (error: Exception) {
+            trace.record(Stage.FETCH_FAILED, fetchId = fetchId)
+            throw error
+        }
+        trace.record(Stage.FETCH_COMPLETE, fetchId = fetchId)
         var imported = 0
         var announced = 0
         var unreadable = 0
@@ -71,11 +89,13 @@ class EmployeeReceiver(
         // announcement of every message and the announcement of the next one in the batch.
         val pendingAcks = ArrayList<Pair<String, String>>(messages.size)
         for (message in messages) {
+            trace.record(
+                Stage.ENVELOPE_FETCHED,
+                clientMessageId = message.messageId,
+                serverMessageId = message.serverMessageId,
+                fetchId = fetchId
+            )
             if (received.byMessageId(message.messageId) == null) {
-                // Log when the envelope is claimed, so the delay before it is announced is
-                // measurable on the device.
-                android.util.Log.i(RELAY_TAG, "employee_fetched message_id=${message.messageId} t=${now}")
-
                 var payload = decrypt(message, keyPair, ownerKey, context)
                 if (payload == null) {
                     // Do not turn a stale cached key into a permanent re-pair loop. A single fresh
@@ -86,6 +106,7 @@ class EmployeeReceiver(
                 if (payload == null) {
                     // Keep the ciphertext so a re-pair can still recover this payment, but store no
                     // payment detail and never guess at the contents.
+                    trace.record(Stage.STORE_START, clientMessageId = message.messageId)
                     received.insert(
                         ReceivedAnnouncement(
                             messageId = message.messageId,
@@ -102,21 +123,19 @@ class EmployeeReceiver(
                             updatedAt = now
                         )
                     )
+                    trace.record(Stage.STORE_COMPLETE, clientMessageId = message.messageId)
                     unreadable++
                     needsRepair = true
                 } else {
+                    trace.record(Stage.STORE_START, clientMessageId = message.messageId)
                     received.insert(pending(message, context, owner, payload, now))
+                    trace.record(Stage.STORE_COMPLETE, clientMessageId = message.messageId)
                     imported++
                     if (received.claimForAnnouncement(message.messageId, now, now) == 1) {
                         val announceText = RelayAnnouncement.format(announcementTemplate(), payload)
-                        val announcedAt = clock()
-                        android.util.Log.i(
-                            RELAY_TAG,
-                            "employee_announced message_id=${message.messageId} t=${announcedAt} " +
-                                "fetch_to_announce_ms=${announcedAt - now} text=$announceText"
-                        )
                         notify(message.messageId, announceText)
-                        announce(announceText)
+                        trace.record(Stage.ANNOUNCEMENT_REQUESTED, clientMessageId = message.messageId)
+                        announceRelay(message.messageId, announceText)
                         announced++
                     }
                 }
@@ -156,6 +175,7 @@ class EmployeeReceiver(
                 hadFailures = true
                 continue
             }
+            trace.record(Stage.STORE_START, clientMessageId = row.messageId)
             received.delete(row.messageId)
             received.insert(
                 ReceivedAnnouncement(
@@ -175,11 +195,13 @@ class EmployeeReceiver(
                     updatedAt = now
                 )
             )
+            trace.record(Stage.STORE_COMPLETE, clientMessageId = row.messageId)
             imported++
             if (received.claimForAnnouncement(row.messageId, now, now) == 1) {
                 val announceText = RelayAnnouncement.format(announcementTemplate(), payload)
                 notify(row.messageId, announceText)
-                announce(announceText)
+                trace.record(Stage.ANNOUNCEMENT_REQUESTED, clientMessageId = row.messageId)
+                announceRelay(row.messageId, announceText)
                 announced++
             }
         }
@@ -248,6 +270,7 @@ class EmployeeReceiver(
         messageId: String
     ): RelayPaymentPayload? {
         val ownerDeviceId = context.owner?.deviceId ?: return null
+        trace.record(Stage.DECRYPT_START, clientMessageId = messageId)
         val bytes = try {
             RelayCrypto.decrypt(
                 encodedEnvelope = envelope,
@@ -258,12 +281,16 @@ class EmployeeReceiver(
                 expectedMessageId = messageId
             )
         } catch (_: Exception) {
+            trace.record(Stage.DECRYPT_FAILED, clientMessageId = messageId)
             Log.w(TAG, "Relay envelope could not be authenticated")
             return null
         }
         return try {
-            RelayPayloadCodec.decode(bytes)
+            RelayPayloadCodec.decode(bytes).also {
+                trace.record(Stage.DECRYPT_COMPLETE, clientMessageId = messageId)
+            }
         } catch (_: Exception) {
+            trace.record(Stage.DECRYPT_FAILED, clientMessageId = messageId)
             Log.w(TAG, "Relay payload could not be read")
             null
         }
@@ -272,8 +299,6 @@ class EmployeeReceiver(
     companion object {
         private const val TAG = "PayAlert"
 
-        /** Log tag for the latency trail shared with the owner device. */
-        private const val RELAY_TAG = "PayAlertRelay"
         private const val FETCH_LIMIT = 20
         private const val RECOVER_LIMIT = 20
         private const val SAFE_DECRYPT_ERROR = "decrypt_failed"

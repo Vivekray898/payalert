@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.vivekray898.payalert.AppGraph
+import com.vivekray898.payalert.relay.RelayTrace.Stage
 import com.vivekray898.payalert.role.LocalDeviceRole
 import kotlinx.coroutines.CancellationException
 
@@ -19,14 +20,10 @@ class RelayMessageFcmWork(
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
+        val message = inputData.getString(KEY_MESSAGE_ID) ?: return Result.failure()
+        RelayTrace.process.record(Stage.FCM_WORKER_STARTED, serverMessageId = message)
         return try {
             val graph = AppGraph.get(applicationContext)
-            val message = inputData.getString("message_id")
-                ?: return Result.failure()
-
-            // Log the FCM receive event for latency measurement
-            val fcmTimestamp = System.currentTimeMillis()
-            android.util.Log.i("PayAlertRelay", "employee_fcm_received message_id=$message t=$fcmTimestamp")
 
             // A push carries only a wake-up id. Refreshing the pairing first is
             // important for a cold process: the relay engine has no context until
@@ -35,14 +32,16 @@ class RelayMessageFcmWork(
             if (!delivered && graph.team.configured && graph.team.account.value != null &&
                 graph.settings.localDeviceRoleState.currentRole == LocalDeviceRole.EMPLOYEE
             ) {
+                RelayTrace.process.record(Stage.FCM_WORKER_RETRY, serverMessageId = message)
                 Result.retry()
             } else {
+                RelayTrace.process.record(Stage.FCM_WORKER_COMPLETE, serverMessageId = message)
                 Result.success()
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (e: Exception) {
-            android.util.Log.w("PayAlertRelay", "FCM relay handling failed: ${e.message}")
+        } catch (_: Exception) {
+            RelayTrace.process.record(Stage.FCM_WORKER_FAILED, serverMessageId = message)
             Result.retry()
         }
     }
@@ -74,10 +73,10 @@ class RelayUpdateFcmTokenWorker(
                 return Result.success()
             }
             graph.updateFcmToken(token)
-            android.util.Log.i("PayAlertRelay", "FCM token updated: ${token.take(20)}...")
+            android.util.Log.i("PayAlertRelay", "FCM token updated")
             Result.success()
-        } catch (e: Exception) {
-            android.util.Log.w("PayAlertRelay", "FCM token update failed: ${e.message}")
+        } catch (_: Exception) {
+            android.util.Log.w("PayAlertRelay", "FCM token update failed")
             Result.retry()
         }
     }

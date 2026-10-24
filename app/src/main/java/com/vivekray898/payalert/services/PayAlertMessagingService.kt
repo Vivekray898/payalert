@@ -11,6 +11,8 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.vivekray898.payalert.relay.RelayFcmContract
 import com.vivekray898.payalert.relay.RelayMessageFcmWork
+import com.vivekray898.payalert.relay.RelayTrace
+import com.vivekray898.payalert.relay.RelayTrace.Stage
 import com.vivekray898.payalert.relay.RelayUpdateFcmTokenWorker
 
 /**
@@ -27,19 +29,22 @@ class PayAlertMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        Log.i(TAG, "FCM token refreshed: ${token.take(20)}...")
+        Log.i(TAG, "FCM token refreshed")
         enqueueTokenUpdate(this, token)
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
-        Log.d(TAG, "FCM message received: ${message.data}")
         val type = message.data[RelayFcmContract.TYPE_KEY]
         when (type) {
             RelayFcmContract.RELAY_MESSAGE_TYPE -> {
+                // This is the Firebase callback, not the later WorkManager execution.
+                RelayTrace.process.record(
+                    Stage.FCM_RECEIVED,
+                    serverMessageId = message.data[RelayFcmContract.MESSAGE_ID_KEY]
+                )
                 val messageId = RelayFcmContract.relayMessageId(message.data)
                 if (messageId != null) {
                     val receivedAt = System.currentTimeMillis()
-                    Log.i(TAG, "relay_message received: $messageId")
                     // Record the arrival so the diagnostics screen can say whether the push path
                     // is live. A device that keeps receiving payments while this stays empty is
                     // being served by the polling fallback, which is what makes delivery slow.
@@ -57,7 +62,7 @@ class PayAlertMessagingService : FirebaseMessagingService() {
                 Log.i(TAG, "pairing_changed received")
                 handlePairingChanged()
             }
-            else -> Log.d(TAG, "Unknown FCM message type: $type")
+            else -> Log.d(TAG, "Unknown FCM message type")
         }
     }
 
@@ -99,11 +104,11 @@ class PayAlertMessagingService : FirebaseMessagingService() {
             runCatching {
                 FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
                     enqueueTokenUpdate(context, token)
-                }.addOnFailureListener { error ->
-                    Log.w(TAG, "FCM token lookup failed: ${error.message}")
+                }.addOnFailureListener {
+                    Log.w(TAG, "FCM token lookup failed")
                 }
-            }.onFailure { error ->
-                Log.w(TAG, "FCM token service unavailable: ${error.message}")
+            }.onFailure {
+                Log.w(TAG, "FCM token service unavailable")
             }
         }
 

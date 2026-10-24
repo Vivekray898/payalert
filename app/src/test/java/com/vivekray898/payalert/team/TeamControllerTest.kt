@@ -34,7 +34,7 @@ class TeamControllerTest {
         }
         override suspend fun createInvite(): TeamInvite {
             invites++
-            return TeamInvite("A1B2C3D4E5F6", "2026-10-16T10:00:00+00:00")
+            return TeamInvite("123456", "2026-10-16T10:00:00+00:00")
         }
         override suspend fun cancelInvite() { cancelCount++ }
         override suspend fun joinTeam(code: String) {
@@ -89,6 +89,21 @@ class TeamControllerTest {
         assertEquals(loadsAfterStart + 1, repo.loads.size)
     }
 
+    @Test fun `invalid input stays local and valid join normalizes before readback`() = runTest {
+        val repo = FakeRepository()
+        val controller = TeamController(repo, backgroundScope, "Phone")
+        runCurrent()
+        controller.join("123")
+        assertTrue(repo.joins.isEmpty())
+        assertNotNull(controller.state.value.error)
+        controller.join("  123456  ")
+        runCurrent()
+        assertEquals(listOf("123456"), repo.joins)
+        assertEquals("Shop phone", controller.state.value.team?.owner?.deviceName)
+        assertEquals(2, repo.loads.size)
+        assertFalse(controller.state.value.needsRefresh)
+    }
+
     @Test fun `an explicit refresh always reads from the server`() = runTest {
         val repo = FakeRepository()
         var now = 1_700_000_000_000L
@@ -125,31 +140,16 @@ class TeamControllerTest {
         assertNotNull(controller.state.value.team)
     }
 
-    @Test fun `invalid input stays local and valid join normalizes before readback`() = runTest {
-        val repo = FakeRepository()
-        val controller = TeamController(repo, backgroundScope, "Phone")
-        runCurrent()
-        controller.join("123")
-        assertTrue(repo.joins.isEmpty())
-        assertNotNull(controller.state.value.error)
-        controller.join("  a1b2c3d4e5f6  ")
-        runCurrent()
-        assertEquals(listOf("A1B2C3D4E5F6"), repo.joins)
-        assertEquals("Shop phone", controller.state.value.team?.owner?.deviceName)
-        assertEquals(2, repo.loads.size)
-        assertFalse(controller.state.value.needsRefresh)
-    }
-
     @Test fun `failed mutation blocks retry until refreshed without claiming success`() = runTest {
         val repo = FakeRepository().apply { failMutation = true }
         val controller = TeamController(repo, backgroundScope, "Phone")
         runCurrent()
-        controller.join("A1B2C3D4E5F6")
+        controller.join("123456")
         runCurrent()
         assertTrue(controller.state.value.needsRefresh)
         assertNull(controller.state.value.message)
         assertEquals("Invalid or expired pairing code.", controller.state.value.error)
-        controller.join("A1B2C3D4E5F6")
+        controller.join("123456")
         assertEquals(1, repo.joins.size)
         controller.refresh()
         runCurrent()
@@ -161,7 +161,7 @@ class TeamControllerTest {
         val controller = TeamController(repo, backgroundScope, "Phone")
         runCurrent()
         repo.failLoad = true
-        controller.join("A1B2C3D4E5F6")
+        controller.join("123456")
         runCurrent()
         assertTrue(controller.state.value.needsRefresh)
         assertNull(controller.state.value.team?.owner)
@@ -209,6 +209,19 @@ class TeamControllerTest {
         runCurrent()
         assertNull(controller.state.value.invite)
         assertEquals(1, controller.state.value.team?.employees?.size)
+    }
+
+    @Test fun `invite expiry supports Supabase fractional offset timestamps`() = runTest {
+        assertEquals(1792144800123L - 123L,
+            TeamInvite("123456", "2026-10-16T10:00:00.123456+00:00").expiresAtMillis)
+        assertEquals(0L, TeamInvite("123456", "invalid").expiresAtMillis)
+        assertFalse(PairingCode.isValid("ABCDEFGHIJKL"))
+        assertFalse(PairingCode.isValid("12345"))
+        assertTrue(PairingCode.isValid("000000"))
+        assertTrue(PairingCode.isValid("999999"))
+        assertTrue(PairingCode.isValid("  000123  "))
+        assertFalse(PairingCode.isValid("12345a"))
+        assertFalse(PairingCode.isValid("1234567"))
     }
 
     @Test fun `cancel invalidates displayed invite after server success`() = runTest {
@@ -284,10 +297,4 @@ class TeamControllerTest {
         assertEquals("another-user", controller.state.value.account?.userId)
     }
 
-    @Test fun `invite expiry supports Supabase fractional offset timestamps`() {
-        assertEquals(1792144800123L - 123L,
-            TeamInvite("A1B2C3D4E5F6", "2026-10-16T10:00:00.123456+00:00").expiresAtMillis)
-        assertEquals(0L, TeamInvite("A1B2C3D4E5F6", "invalid").expiresAtMillis)
-        assertFalse(PairingCode.isValid("ABCDEFGHIJKL"))
-    }
 }

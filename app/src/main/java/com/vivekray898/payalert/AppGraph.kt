@@ -119,7 +119,8 @@ object AppGraph {
             received = database.receivedAnnouncementDao(),
             announcementTemplate = { settings.state.value.creditTemplate },
             announce = tts::announce,
-            notify = announcementNotifier::showAnnouncement
+            notify = announcementNotifier::showAnnouncement,
+            announceRelay = tts::announceRelay
         )
 
         /**
@@ -140,7 +141,8 @@ object AppGraph {
             receiver = relayReceiver,
             outbound = database.ownerOutboundQueueDao(),
             received = database.receivedAnnouncementDao(),
-            scope = appScope
+            scope = appScope,
+            recentOwnerPayments = { from, to -> database.paymentEventDao().inRange(from, to) }
         )
 
         /**
@@ -224,7 +226,10 @@ object AppGraph {
             val controller = teamController
             appScope.launch {
                 try {
-                    controller.refresh()
+                    // Await the snapshot before recovery. The old fire-and-forget refresh left a
+                    // short window where a local payment could be accepted with no relay context.
+                    controller.refreshNow()
+                    relayEngine.recoverRecentOwnerPayments()
                 } catch (_: Exception) {
                     // Offline is normal; the next open retries.
                 }

@@ -34,6 +34,7 @@ captures/
 !.env.example
 secrets.properties
 app/firebase-service-account.json
+app/FCM_SERVICE_ACCOUNT.json
 
 # Claude local settings
 .claude/

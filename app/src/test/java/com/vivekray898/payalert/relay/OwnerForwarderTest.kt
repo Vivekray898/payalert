@@ -2,6 +2,7 @@ package com.vivekray898.payalert.relay
 
 import com.vivekray898.payalert.data.PaymentEvent
 import com.vivekray898.payalert.role.LocalDeviceRole
+import java.util.UUID
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -63,6 +64,25 @@ class OwnerForwarderTest {
         )
         assertEquals(500.0, decoded.amount, 0.001)
         assertEquals("Ramesh", decoded.merchant)
+    }
+
+    @Test
+    fun `owner relay trace brackets durable enqueue and server acceptance without payment data`() = runTest {
+        val fakes = Fakes()
+        fakes.transport.peerKeys[employeeId] = fakes.employeePeer
+        val event = creditEvent(amount = 500.0, merchant = "Ramesh")
+
+        fakes.forwarder.offer(context(), event)
+        fakes.forwarder.flush(context())
+
+        assertEquals(
+            listOf("owner_enqueue_start", "owner_enqueued", "owner_send_start", "owner_send_accepted"),
+            fakes.traceLines.map { it.substringAfter("stage=").substringBefore(' ') }
+        )
+        val output = fakes.traceLines.joinToString(" ")
+        assertFalse(output.contains("500"))
+        assertFalse(output.contains("Ramesh"))
+        assertFalse(output.contains("UTR123"))
     }
 
     @Test
@@ -147,6 +167,26 @@ class OwnerForwarderTest {
     }
 
     @Test
+    fun `a peer-key transport outage is not misclassified as a missing key`() = runTest {
+        val fakes = Fakes()
+        fakes.transport.bindFailure = RelayTransportException("offline")
+        assertEquals(1, fakes.forwarder.offer(context(), creditEvent()))
+
+        var threw = false
+        try {
+            fakes.forwarder.flush(context())
+        } catch (_: RelayTransportException) {
+            threw = true
+        }
+
+        assertTrue(threw)
+        val row = fakes.queue.rows.values.single()
+        assertEquals(RelayDeliveryStatus.PENDING, row.status)
+        assertEquals(0, row.attemptCount)
+        assertEquals(null, row.lastError)
+    }
+
+    @Test
     fun `ending a pairing drops everything that was never delivered`() = runTest {
         val fakes = Fakes()
         fakes.transport.peerKeys[employeeId] = fakes.employeePeer
@@ -221,6 +261,8 @@ class OwnerForwarderTest {
         val queue = FakeOwnerOutboundQueueDao()
         val peerKeyDao = FakeRelayPeerKeyDao()
         val peerKeys = RelayPeerKeyCache(peerKeyDao) { now }
+        val traceLines = mutableListOf<String>()
+        val trace = RelayTrace({ now }, { now }, UUID.randomUUID(), traceLines::add)
         val identity = RelayIdentity(storage, transport) { "owner-key-1" }
         val ownerKeys = RelayCrypto.generateKeyPair("owner-key-1")
         val employeeKeys = RelayCrypto.generateKeyPair("employee-key-1")
@@ -240,7 +282,8 @@ class OwnerForwarderTest {
             identity = identity,
             queue = queue,
             peerKeys = peerKeys,
-            clock = { now }
+            clock = { now },
+            trace = trace
         )
     }
 

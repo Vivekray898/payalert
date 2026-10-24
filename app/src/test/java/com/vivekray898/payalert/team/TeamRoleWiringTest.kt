@@ -18,7 +18,7 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class TeamRoleWiringTest {
 
-    private val code = "A1B2C3D4E5F6"
+    private val code = "123456"
 
     @Test
     fun `joining as an employee switches this device to employee mode`() = runTest {
@@ -141,7 +141,7 @@ class TeamRoleWiringTest {
 
         override suspend fun createInvite(): TeamInvite {
             invites++
-            return TeamInvite("A1B2C3D4E5F6", "2026-10-16T10:00:00+00:00")
+            return TeamInvite("123456", "2026-10-16T10:00:00+00:00")
         }
 
         override suspend fun cancelInvite() = Unit

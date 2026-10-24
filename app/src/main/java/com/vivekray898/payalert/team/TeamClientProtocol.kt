@@ -13,7 +13,10 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 /** Only fixed, user-facing messages cross the client boundary. Never attach a response/cause. */
-internal class TeamClientException(message: String) : Exception(message)
+internal open class TeamClientException(message: String) : Exception(message)
+
+/** A join request was rejected before a pairing could be committed, so the user can try again. */
+internal class TeamJoinRejectedException(message: String) : TeamClientException(message)
 
 internal class TeamConfig private constructor(val origin: String, val publishableKey: String) {
     companion object {
@@ -216,7 +219,7 @@ internal object TeamProtocol {
     fun invite(body: String): TeamInvite = parse {
         val root = json(body)
         val code = root.requiredString("code")
-        require(code.matches(Regex("[A-F0-9]{12}")))
+        require(code.matches(Regex("[0-9]{6}")))
         val expiresAt = root.requiredString("expires_at")
         require(expiresAt.matches(Regex("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,9})?(?:Z|[+-]\\d{2}:\\d{2})")))
         val normalized = expiresAt.replace(Regex("\\.\\d+(?=Z|[+-])"), "")
@@ -240,7 +243,7 @@ internal object TeamProtocol {
                 "rate_limited" -> "Too many pairing attempts. Wait 10 minutes, then ask the owner for a fresh code."
                 else -> "Unable to join this team. Refresh devices, then check the pairing code and try again."
             }
-            throw TeamClientException(message)
+            throw TeamJoinRejectedException(message)
         }
     }
 

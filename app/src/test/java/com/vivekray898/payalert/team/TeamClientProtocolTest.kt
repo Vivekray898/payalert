@@ -89,13 +89,23 @@ class TeamClientProtocolTest {
         rejects { TeamProtocol.snapshot("""{"device":null,"employees":[],"owner":null}""") }
     }
 
-    @Test fun `invite requires uppercase hex and valid ISO timestamp`() {
-        val invite = TeamProtocol.invite("""{"code":"012345ABCDEF","expires_at":"2027-01-02T03:04:05.123456+00:00"}""")
-        assertEquals("012345ABCDEF", invite.code)
+    @Test fun `invite requires six digits and valid ISO timestamp`() {
+        val invite = TeamProtocol.invite("""{"code":"012345","expires_at":"2027-01-02T03:04:05.123456+00:00"}""")
+        assertEquals("012345", invite.code)
         assertEquals("2027-01-02T03:04:05.123456+00:00", invite.expiresAt)
-        rejects { TeamProtocol.invite("""{"code":"012345abcdef","expires_at":"2027-01-02T03:04:05Z"}""") }
-        rejects { TeamProtocol.invite("""{"code":"012345ABCDEF","expires_at":"2027-02-30T03:04:05Z"}""") }
-        rejects { TeamProtocol.invite("""{"code":"012345ABCDEF","expires_at":"tomorrow"}""") }
+        rejects { TeamProtocol.invite("""{"code":"01234","expires_at":"2027-01-02T03:04:05Z"}""") }
+        rejects { TeamProtocol.invite("""{"code":"0123456","expires_at":"2027-01-02T03:04:05Z"}""") }
+        rejects { TeamProtocol.invite("""{"code":"ABCDEF12","expires_at":"2027-01-02T03:04:05Z"}""") }
+        rejects { TeamProtocol.invite("""{"code":"012345","expires_at":"2027-02-30T03:04:05Z"}""") }
+        rejects { TeamProtocol.invite("""{"code":"012345","expires_at":"tomorrow"}""") }
+    }
+
+    @Test fun `invite rejects non-numeric and wrong-length codes`() {
+        rejects { TeamProtocol.invite("""{"code":"00000","expires_at":"2027-01-02T03:04:05Z"}""") }
+        rejects { TeamProtocol.invite("""{"code":"0000000","expires_at":"2027-01-02T03:04:05Z"}""") }
+        rejects { TeamProtocol.invite("""{"code":"ABCDEF","expires_at":"2027-01-02T03:04:05Z"}""") }
+        rejects { TeamProtocol.invite("""{"code":"  123456  ","expires_at":"2027-01-02T03:04:05Z"}""") }
+        rejects { TeamProtocol.invite("""{"code":"","expires_at":"2027-01-02T03:04:05Z"}""") }
     }
 
     @Test fun `errors never expose API details and successful HTTP join can still fail`() {

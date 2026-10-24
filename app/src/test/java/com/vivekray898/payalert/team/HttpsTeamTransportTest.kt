@@ -13,7 +13,7 @@ import javax.net.ssl.HttpsURLConnection
 class HttpsTeamTransportTest {
     private val url = "https://project.supabase.co/rest/v1/rpc/team_join"
     private val request = TeamHttpRequest(url,
-        mapOf("apikey" to "public-key", "Authorization" to "Bearer private-token"), "{\"p_code\":\"ABCDEF012345\"}")
+        mapOf("apikey" to "public-key", "Authorization" to "Bearer private-token"), "{\"p_code\":\"123456\"}")
 
     @Test fun `redirects never follow location or read body and connection disconnects`() {
         val connection = FakeConnection(URL(url), 307, "private response")

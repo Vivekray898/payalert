@@ -43,6 +43,6 @@ interface TeamRepository {
 }
 
 object PairingCode {
-    fun normalize(value: String): String = value.trim().uppercase(java.util.Locale.ROOT)
-    fun isValid(value: String): Boolean = normalize(value).matches(Regex("[A-F0-9]{12}"))
+    fun normalize(value: String): String = value.trim()
+    fun isValid(value: String): Boolean = normalize(value).matches(Regex("[0-9]{6}"))
 }

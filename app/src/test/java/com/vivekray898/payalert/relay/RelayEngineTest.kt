@@ -5,6 +5,7 @@ import com.vivekray898.payalert.role.LocalDeviceRole
 import com.vivekray898.payalert.team.TeamConnection
 import com.vivekray898.payalert.team.TeamDevice
 import com.vivekray898.payalert.team.TeamSnapshot
+import java.util.UUID
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -33,6 +34,20 @@ class RelayEngineTest {
     }
 
     @Test
+    fun `recent durable payment is recovered when the relay handoff coroutine was interrupted`() = runTest {
+        val fakes = Fakes(scope = this)
+        fakes.prepare()
+        fakes.engine.onPairingChanged(ownerSnapshot(), LocalDeviceRole.OWNER)
+
+        // Simulate process death after Room stored the payment but before onStored could enqueue it.
+        fakes.engine.recoverRecentOwnerPayments(now = NOW, windowMillis = 5_000L)
+        advanceUntilIdle()
+
+        assertEquals(1, fakes.transport.enqueued.size)
+        assertEquals(EMPLOYEE, fakes.transport.enqueued.single().first)
+    }
+
+    @Test
     fun `an unpaired device forwards nothing`() = runTest {
         val fakes = Fakes(scope = this)
         fakes.prepare()
@@ -43,6 +58,7 @@ class RelayEngineTest {
         assertTrue(fakes.transport.enqueued.isEmpty())
         assertTrue(fakes.queue.rows.isEmpty())
         assertNull(fakes.engine.pairingContext())
+        assertEquals(listOf("owner_context_missing"), fakes.traceLines.map { stage(it) })
     }
 
     @Test
@@ -102,6 +118,23 @@ class RelayEngineTest {
 
         assertEquals("forwarding_failed", fakes.engine.status.value.lastError)
         assertEquals(1, fakes.queue.rows.values.single().attemptCount)
+    }
+
+    @Test
+    fun `a peer-key lookup outage stays retryable instead of becoming a delivery failure`() = runTest {
+        val fakes = Fakes(scope = this)
+        fakes.prepare()
+        fakes.peerKeys.forget(EMPLOYEE)
+        fakes.transport.bindFailure = RelayTransportException("offline")
+
+        fakes.engine.onPairingChanged(ownerSnapshot(), LocalDeviceRole.OWNER)
+        fakes.engine.onStored(event("credit"))
+        advanceUntilIdle()
+
+        assertEquals("relay_unreachable", fakes.engine.status.value.lastError)
+        val row = fakes.queue.rows.values.single()
+        assertEquals(RelayDeliveryStatus.PENDING, row.status)
+        assertEquals(0, row.attemptCount)
     }
 
     @Test
@@ -170,6 +203,8 @@ class RelayEngineTest {
         val received = FakeReceivedAnnouncementDao()
         val peerKeyDao = FakeRelayPeerKeyDao()
         val peerKeys = RelayPeerKeyCache(peerKeyDao) { now }
+        val traceLines = mutableListOf<String>()
+        val trace = RelayTrace({ now }, { now }, UUID.randomUUID(), traceLines::add)
         val identity = RelayIdentity(storage, transport) { "device-key" }
         val ownerKeys = RelayCrypto.generateKeyPair("owner-key-1")
         val employeeKeys = RelayCrypto.generateKeyPair("employee-key-1")
@@ -194,7 +229,9 @@ class RelayEngineTest {
             outbound = queue,
             received = received,
             clock = { now },
-            scope = scope
+            scope = scope,
+            trace = trace,
+            recentOwnerPayments = { _, _ -> listOf(event("credit")) }
         )
 
         suspend fun prepare() {
@@ -207,6 +244,8 @@ class RelayEngineTest {
             )
         }
     }
+
+    private fun stage(line: String): String = line.substringAfter("stage=").substringBefore(' ')
 
     private companion object {
         const val NOW = 1_700_000_000_000L

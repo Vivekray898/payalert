@@ -106,15 +106,15 @@ class SupabaseTeamRepositoryTest {
         val network = RecordingTransport { request ->
             TeamHttpResponse(200, when (request.url.substringAfterLast('/')) {
                 "team_register_device" -> snapshot
-                "team_create_invite" -> """{"code":"ABCDEF012345","expires_at":"2027-01-02T03:04:05Z"}"""
+                "team_create_invite" -> """{"code":"123456","expires_at":"2027-01-02T03:04:05Z"}"""
                 else -> "null"
             })
         }
         val repository = SupabaseTeamRepository(config, store, network, StandardTestDispatcher(testScheduler)) { now }
         assertEquals("Counter", repository.loadTeam(" Counter ").device.name)
-        assertEquals("ABCDEF012345", repository.createInvite().code)
+        assertEquals("123456", repository.createInvite().code)
         repository.cancelInvite()
-        repository.joinTeam(" abcdef012345 ")
+        repository.joinTeam(" 123456 ")
         val pairing = UUID.randomUUID().toString()
         repository.removeConnection(pairing)
         val id = store.installations.values.single()
@@ -122,7 +122,7 @@ class SupabaseTeamRepositoryTest {
             "team_register_device" to mapOf("p_device_id" to id, "p_device_name" to "Counter"),
             "team_create_invite" to mapOf("p_device_id" to id),
             "team_cancel_invite" to mapOf("p_device_id" to id),
-            "team_join" to mapOf("p_device_id" to id, "p_code" to "ABCDEF012345"),
+            "team_join" to mapOf("p_device_id" to id, "p_code" to "123456"),
             "team_remove_connection" to mapOf("p_device_id" to id, "p_pairing_id" to pairing)
         )
         assertEquals(expected, network.requests.map { it.url.substringAfterLast('/') to parameters(it) })
@@ -158,7 +158,7 @@ class SupabaseTeamRepositoryTest {
         expectFailure { repository.joinTeam("bad") }
         expectFailure { repository.removeConnection("bad") }
         assertEquals(0, network.requests.size)
-        val error = expectFailure { repository.joinTeam("ABCDEF012345") }
+        val error = expectFailure { repository.joinTeam("123456") }
         assertFalse(error.message.orEmpty().contains("secret SQL"))
         assertEquals(1, network.requests.size)
         network.handler = { throw IOException("secret URL and token") }

@@ -31,6 +31,7 @@ class TeamScreenTest {
         override val authError = MutableStateFlow<String?>(null)
         var snapshot = TeamSnapshot(TeamDevice("test-device", "Shop phone"))
         var failLoad = false
+        var rejectJoins = false
         var joins = 0
         override suspend fun signInUrl() = "https://example.test"
         override suspend fun completeSignIn(callbackUrl: String) = Unit
@@ -39,10 +40,13 @@ class TeamScreenTest {
             if (failLoad) throw TeamClientException("Unable to reach the team service. Check your connection and try again.")
             return snapshot.copy(device = snapshot.device.copy(name = deviceName))
         }
-        override suspend fun createInvite() = TeamInvite("A1B2C3D4E5F6", "2099-01-01T12:00:00Z")
+        override suspend fun createInvite() = TeamInvite("123456", "2099-01-01T12:00:00Z")
         override suspend fun cancelInvite() = Unit
         override suspend fun joinTeam(code: String) {
             joins++
+            if (rejectJoins) throw TeamJoinRejectedException(
+                "This pairing code is invalid, expired, or already used. Ask the owner for a new code."
+            )
             snapshot = snapshot.copy(owner = TeamConnection("test-pair", "test-owner", "Owner tablet"))
         }
         override suspend fun removeConnection(pairingId: String) {
@@ -69,7 +73,7 @@ class TeamScreenTest {
         val repository = FakeTeam()
         show(repository)
         click("Create pairing code")
-        compose.onNodeWithText("A1B2C3D4E5F6").assertExists()
+        compose.onNodeWithText("123456").assertExists()
         click("Copy pairing code")
         compose.onNodeWithText("Code copied").assertExists()
         click("Cancel pairing code")
@@ -87,18 +91,23 @@ class TeamScreenTest {
         compose.runOnIdle { assertTrue(repository.snapshot.employees.isEmpty()) }
     }
 
-    @Test fun employeeCanValidateJoinAndLeaveWithConfirmation() {
+    @Test fun employeeAutoPairsAfterSixDigitsAndCanRetryRejectedCode() {
         val repository = FakeTeam()
         show(repository)
         click("I'm an employee")
-        compose.onNode(hasSetTextAction()).performScrollTo().performTextReplacement("123")
-        click("Pair this device")
+        compose.onNode(hasSetTextAction()).performScrollTo().performTextReplacement("12")
         compose.runOnIdle { assertEquals(0, repository.joins) }
-        compose.onNodeWithText("Enter all 12 characters, using A–F and 0–9.").assertExists()
-        compose.onNode(hasSetTextAction()).performScrollTo().performTextReplacement("a1b2c3d4e5f6")
-        click("Pair this device")
-        compose.onNodeWithText("Connected owner").assertExists()
+        compose.onNodeWithText("Pair this device").assertDoesNotExist()
+
+        repository.rejectJoins = true
+        compose.onNode(hasSetTextAction()).performScrollTo().performTextReplacement("000123")
+        compose.onNodeWithText("This pairing code is invalid, expired, or already used. Ask the owner for a new code.").assertExists()
         compose.runOnIdle { assertEquals(1, repository.joins) }
+
+        repository.rejectJoins = false
+        compose.onNode(hasSetTextAction()).performScrollTo().performTextReplacement("000124")
+        compose.onNodeWithText("Connected owner").assertExists()
+        compose.runOnIdle { assertEquals(2, repository.joins) }
         click("Leave team")
         compose.onNodeWithText("Leave this team?").assertExists()
         clickDialog("Cancel")

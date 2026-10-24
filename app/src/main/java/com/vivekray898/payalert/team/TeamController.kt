@@ -166,10 +166,10 @@ class TeamController(
             return
         }
         if (!PairingCode.isValid(code)) {
-            update { copy(error = "Enter all 12 letters and numbers from the owner's pairing code.") }
+            update { copy(error = "Enter all 6 digits from the owner's pairing code.") }
             return
         }
-        mutate("Device paired. You can now see the owner device.") {
+        mutate("Device paired. You can now see the owner device.", retryableJoinRejection = true) {
             repository.joinTeam(PairingCode.normalize(code))
         }
     }
@@ -180,10 +180,19 @@ class TeamController(
 
     fun clearError() = update { copy(error = null) }
 
-    private fun mutate(message: String, operation: suspend () -> Unit) = perform(ready = true) {
+    private fun mutate(
+        message: String,
+        retryableJoinRejection: Boolean = false,
+        operation: suspend () -> Unit
+    ) = perform(ready = true) {
         // A timeout can happen after a server commit. Require readback before another mutation.
         update { copy(needsRefresh = true, invite = null) }
-        operation()
+        try {
+            operation()
+        } catch (rejected: TeamJoinRejectedException) {
+            if (retryableJoinRejection) update { copy(needsRefresh = false) }
+            throw rejected
+        }
         val snapshot = repository.loadTeam(deviceName)
         update { copy(team = snapshot, needsRefresh = false, message = message) }
         syncPairing(snapshot)

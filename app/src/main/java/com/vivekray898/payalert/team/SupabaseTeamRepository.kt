@@ -162,7 +162,7 @@ class SupabaseTeamRepository internal constructor(
     }
 
     override suspend fun joinTeam(code: String) = onIo {
-        if (!PairingCode.isValid(code)) throw TeamClientException("Enter the 12-character pairing code.")
+        if (!PairingCode.isValid(code)) throw TeamClientException("Enter the 6-digit pairing code.")
         TeamProtocol.requireJoinSuccess(rpc("team_join") {
             mapOf("p_device_id" to it, "p_code" to PairingCode.normalize(code))
         })
@@ -364,6 +364,8 @@ class SupabaseTeamRepository internal constructor(
                 block()
             } catch (cancelled: CancellationException) {
                 throw cancelled
+            } catch (error: TeamClientException) {
+                throw error
             } catch (error: RelayTransportException) {
                 // Relay failures carry their own caller-facing meaning; keep it intact.
                 throw error

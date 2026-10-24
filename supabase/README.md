@@ -61,19 +61,27 @@ In the Supabase Dashboard → Database → Webhooks:
 
 ```bash
 supabase secrets set \
-  SUPABASE_SERVICE_ROLE_KEY=<value> \
+  PAYALERT_SUPABASE_SECRET_KEY=<sb_secret_value> \
   FCM_SERVICE_ACCOUNT_JSON='<json>' \
   FIREBASE_PROJECT_ID=payment-announcer-43071 \
   RELAY_WEBHOOK_SECRET='<random-shared-secret>'
 ```
 
-**Never commit these values.** They live in the project's secret store, not in this repository.
+**Never commit these values.** `PAYALERT_SUPABASE_SECRET_KEY` holds a server-only key and must be sent to
+Supabase on the `apikey` header, never bundled into Android or sent as a JWT bearer token. The
+values live in the project's secret store, not in this repository.
 
 ### 4. Deploy the Edge Function
 
 ```bash
-supabase functions deploy relay-notify
+supabase functions deploy relay-notify --no-verify-jwt
 ```
+
+The function intentionally requires `x-relay-webhook-secret` because JWT verification is disabled
+for the Database Webhook caller. It accepts the Database Webhook `type: "INSERT"` field, not the
+Realtime `eventType` field. Its structured logs include only allowlisted UUIDs, UTC epoch time,
+per-invocation monotonic elapsed time, stage, attempt, and bounded failure codes; encrypted
+envelopes, payment text, tokens, device identifiers, and credentials are never logged.
 
 ### 5. Configure the app for Firebase
 
@@ -84,11 +92,17 @@ supabase functions deploy relay-notify
 
 The relay table is in the `relay_private` schema. `encrypted_relay.sql` revokes all privileges on it from `anon` and `authenticated`, and adds a RESTRICTIVE `relay_no_client_access` policy with `USING (false)`. Supabase Realtime filters each `postgres_changes` event by evaluating RLS as the subscriber's role, so an authenticated subscriber matches zero rows. The envelope table is invisible to clients by design; every read goes through the SECURITY DEFINER RPCs so the server stays payload-blind.
 
-The employee device therefore receives through the existing authenticated `relay_fetch` RPC, pumped on a short cadence by `EmployeeRealtimeService` (foreground, 10 s) plus `RelayPumpScheduler` (WorkManager, 15 min floor), with `PayAlertMessagingService` as the immediate FCM wake-up path when FCM is configured. The app immediately posts a temporary high-importance notification, fetches/decrypts the envelope locally, and replaces it with the actual announcement. This keeps the server payload-blind.
+The employee device therefore receives through the existing authenticated `relay_fetch` RPC, pumped on a short cadence by `EmployeeRealtimeService` (foreground, 30 s fallback) plus `RelayPumpScheduler` (WorkManager, 15 min floor), with `PayAlertMessagingService` as the immediate FCM wake-up path when FCM is configured. The app immediately posts a temporary high-importance notification, fetches/decrypts the envelope locally, and replaces it with the actual announcement. This keeps the server payload-blind.
 
 ## FCM is the immediate wake-up path
 
 - **Primary:** the employee-side pump (`EmployeeRealtimeService` + `RelayPumpScheduler`).
 - **Immediate wake-up:** high-priority, data-only FCM push carrying `message_id` only. The employee app fetches the envelope via the authenticated `relay_fetch` RPC after wake-up and posts a temporary visible notification before the fetch completes.
+
+The Android logcat tag `PayAlertRelay` emits payload-blind markers for owner enqueue/send, FCM
+receipt, WorkManager start, fetch, decrypt, local store, announcement request, and actual TTS
+audio callbacks. Each marker contains UTC epoch milliseconds and a process-local monotonic clock
+domain. Compare monotonic values only within one clock domain; compare the UUID fields across the
+owner, Edge Function, and employee logs.
 
 The push never contains the encrypted payload. Leaking it into FCM would expose it to Google's servers and the notification tray.

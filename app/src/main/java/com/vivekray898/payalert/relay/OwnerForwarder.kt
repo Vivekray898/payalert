@@ -24,7 +24,8 @@ class OwnerForwarder(
     /** Raised when a peer key can no longer be resolved, which needs a re-pair. */
     private val onKeyNotBound: () -> Unit = {},
     /** Raised after a failed delivery attempt so diagnostics stay current. */
-    private val onAttemptFailed: () -> Unit = {}
+    private val onAttemptFailed: () -> Unit = {},
+    private val trace: RelayTrace = RelayTrace.process
 ) {
 
     /**
@@ -53,10 +54,22 @@ class OwnerForwarder(
             val messageId = RelayMessageId.forEvent(
                 context.localDeviceId, employee.deviceId, event.dedupKey
             )
-            if (queue.byMessageId(messageId) != null) continue
+            trace.record(RelayTrace.Stage.OWNER_ENQUEUE_START, clientMessageId = messageId)
+            if (queue.byMessageId(messageId) != null) {
+                trace.record(RelayTrace.Stage.OWNER_ENQUEUE_DUPLICATE, clientMessageId = messageId)
+                continue
+            }
             // A peer key that cannot be resolved yet is not fatal: the payload is queued and the
             // send attempt re-encrypts, so an owner that is briefly offline still forwards.
-            val envelope = encrypt(context, employee.deviceId, messageId, bytes, keyPair).orEmpty()
+            val envelope = try {
+                encrypt(context, employee.deviceId, messageId, bytes, keyPair).orEmpty()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Keep the durable payload even when the first key lookup is unavailable. The
+                // actual delivery attempt below resolves the key again and owns retry state.
+                ""
+            }
             queue.insert(
                 OwnerOutboundMessage(
                     messageId = messageId,
@@ -70,9 +83,7 @@ class OwnerForwarder(
                 )
             )
             queued++
-
-            // Log the enqueue event for latency measurement
-            android.util.Log.i(RELAY_TAG, "owner_enqueued message_id=$messageId t=$now")
+            trace.record(RelayTrace.Stage.OWNER_ENQUEUED, clientMessageId = messageId)
         }
         return queued
     }
@@ -186,8 +197,26 @@ class OwnerForwarder(
         payload: ByteArray,
         keyPair: RelayKeyPair
     ): SendResult {
-        val envelope = encrypt(context, row.employeeId, row.messageId, payload, keyPair)
-            ?: return SendResult.KEY_NOT_BOUND
+        trace.record(RelayTrace.Stage.OWNER_SEND_START, clientMessageId = row.messageId)
+        val envelope: String? = try {
+            encrypt(context, row.employeeId, row.messageId, payload, keyPair)
+        } catch (notBound: RelayKeyNotBoundException) {
+            null
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (transportFailure: RelayTransportException) {
+            // A lookup/auth/network failure is temporary. Do not turn it into a key-repair
+            // failure or consume a delivery attempt before the relay can be reached again.
+            trace.record(RelayTrace.Stage.OWNER_SEND_FAILED, clientMessageId = row.messageId)
+            throw transportFailure
+        } catch (_: Exception) {
+            trace.record(RelayTrace.Stage.OWNER_SEND_FAILED, clientMessageId = row.messageId)
+            return SendResult.FAILED
+        }
+        if (envelope == null) {
+            trace.record(RelayTrace.Stage.OWNER_SEND_FAILED, clientMessageId = row.messageId)
+            return SendResult.KEY_NOT_BOUND
+        }
         return try {
             transport.enqueue(
                 employeeDeviceId = row.employeeId,
@@ -196,18 +225,16 @@ class OwnerForwarder(
                 ttlSeconds = ENVELOPE_TTL_SECONDS
             )
             // The server accepted the envelope. Together with the employee's
-            // "employee_fetched" line for the same message id, this brackets the
-            // part of the delay that the relay server is responsible for.
-            android.util.Log.i(
-                RELAY_TAG,
-                "owner_sent message_id=${row.messageId} t=${System.currentTimeMillis()}"
-            )
+            // envelope_fetched line for the same client message id, this brackets
+            // the part of the delay the relay server is responsible for.
+            trace.record(RelayTrace.Stage.OWNER_SEND_ACCEPTED, clientMessageId = row.messageId)
             SendResult.DELIVERED
         } catch (notBound: RelayKeyNotBoundException) {
             SendResult.KEY_NOT_BOUND
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (_: Exception) {
+            trace.record(RelayTrace.Stage.OWNER_SEND_FAILED, clientMessageId = row.messageId)
             SendResult.FAILED
         }
     }
@@ -222,11 +249,7 @@ class OwnerForwarder(
         keyPair: RelayKeyPair
     ): String? {
         val peer = peerKeys.resolve(employeeDeviceId) {
-            try {
-                transport.bindPeerKey(employeeDeviceId)
-            } catch (_: Exception) {
-                null
-            }
+            transport.bindPeerKey(employeeDeviceId)
         } ?: return null
         val publicKey = try {
             RelayCrypto.parsePublicKey(peer.publicKey)
@@ -258,8 +281,6 @@ class OwnerForwarder(
     companion object {
         private const val TAG = "PayAlert"
 
-        /** Log tag for the latency trail shared with the employee device. */
-        private const val RELAY_TAG = "PayAlertRelay"
         private const val MAX_PER_FLUSH = 20
 
         /** Matches the server default so an undelivered envelope expires on both sides together. */
