@@ -28,21 +28,8 @@ start receiving spoken payment notifications.
 
 ### Download the ready-to-use Android app
 
-Choose either installation method. Both are intended for normal Android users; neither requires a
-source checkout or a local build.
-
-#### Recommended: one-tap BetaDrop installation
-
-Open **[Install PayAlert with BetaDrop](https://betadrop.app/i/XrKM4v)** on your Android phone and
-follow the install prompt. BetaDrop provides a guided install page for PayAlert.
-
-1. Open the link on the Android phone where you want to use PayAlert.
-2. Tap the install/download button.
-3. If Android asks for permission to install from your browser or file manager, enable **Allow from
-   this source**, then return to the installer.
-4. Tap **Install**, open PayAlert, and complete onboarding.
-
-#### Alternative: download the APK from GitHub
+Download the latest APK from GitHub Releases. This is intended for normal Android users and does not
+require a source checkout or a local build.
 
 Open **[PayAlert Releases on GitHub](https://github.com/Vivekray898/payalert/releases/latest)** and
 download the `.apk` file from the latest published release's **Assets** section.
@@ -57,8 +44,8 @@ download the `.apk` file from the latest published release's **Assets** section.
 The GitHub release page is the right place to check for new APK versions. You do not need to download
 the source code, install a compiler, or run any terminal command.
 
-> **GitHub APK note:** the currently published GitHub release artifact is unsigned, so Android may
-> show an install warning. For the smoothest guided installation, use the BetaDrop link above.
+> **GitHub APK note:** the current release includes a debug-signed APK intended for testing, so
+> Android may show an install warning.
 
 ### What normal users get
 
