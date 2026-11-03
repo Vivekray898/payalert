@@ -219,6 +219,28 @@ class ParserRegistryTest {
     }
 
     @Test
+    fun `gpay cashback marketing notification is not a credit`() {
+        val text =
+            "Complete your Airtel recharge, get 5% cashback on gift cards. " +
+                "Recharge for ₹379 and get Adobe Express Premium, Apple Music, cashback on select " +
+                "gift cards on Google Pay & many other benefits"
+
+        assertEquals("promo", parser.skipCategory(text))
+        assertNull(parser.parse(text, "com.google.android.apps.nbu.paisa.user"))
+    }
+
+    @Test
+    fun `cashback explicitly credited remains a real credit`() {
+        val parsed = parser.parse(
+            "Cashback of ₹50.00 credited to your Google Pay balance",
+            "com.google.android.apps.nbu.paisa.user"
+        )!!
+
+        assertEquals("credit", parsed.kind)
+        assertEquals(50.00, parsed.amount, 0.001)
+    }
+
+    @Test
     fun `card bonus promotion is skipped before credit parsing`() {
         val texts = listOf(
             "You received 300 rupees bonus from this card",

@@ -30,14 +30,14 @@
   "skip": {
     "otp": ["otp", "one time password", "one-time password", "verification code", "do not share", "never share", "valid for next"],
     "dueReminder": ["is due", "due on", "due date", "emi of", "emi is", "minimum amount due", "payment due", "will be debited", "will be deducted", "is scheduled", "overdue", "kindly pay", "please pay"],
-    "promo": ["offer", "discount", "bonus", "pre-approved", "pre approved", "apply now", "avail", "congratulations", "you have won", "click the link", "click here", "limited period", "t&c apply", "get up to"],
+    "promo": ["offer", "discount", "bonus", "pre-approved", "pre approved", "apply now", "avail", "congratulations", "you have won", "click the link", "click here", "limited period", "t&c apply", "get up to", "cashback on", "gift card"],
     "delivery": ["out for delivery", "is delivered", "has been delivered", "shipped", "dispatched", "will be delivered"],
     "request": ["has requested", "collect request", "has requested money", "payment request", "requesting you to pay"],
     "declined": ["declined", "payment failed", "has failed", "unsuccessful", "insufficient", "cannot be processed", "not processed", "transaction failed"]
   },
   "direction": {
     "debit": ["debited", "debit", "withdrawn", "withdrawal", "spent", "paid", "sent", "deducted", "purchase", "transferred", "charged"],
-    "credit": ["credited", "credit", "received", "deposited", "refund", "cashback", "reversed", "added", "money received", "paid you", "sent you", "sent to you", "transferred to you"],
+    "credit": ["credited", "credit", "received", "deposited", "refund", "reversed", "added", "money received", "paid you", "sent you", "sent to you", "transferred to you"],
     "debitWins": ["debited", "debit", "spent", "withdrawn", "deducted"]
   },
   "merchant": {
