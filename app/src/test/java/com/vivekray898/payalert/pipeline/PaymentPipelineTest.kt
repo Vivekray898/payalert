@@ -292,6 +292,27 @@ class PaymentPipelineTest {
     }
 
     @Test
+    fun `cashback marketing notification is not saved or announced as a credit`() = runBlocking {
+        val store = FakePaymentStore()
+        val tts = CopyOnWriteArrayList<String>()
+        val pipeline = pipeline(store, tts)
+
+        val outcome = pipeline.handle(
+            "Complete your Airtel recharge, get 5% cashback on gift cards. " +
+                "Recharge for ₹379 and get Adobe Express Premium, Apple Music, cashback on select " +
+                "gift cards on Google Pay & many other benefits",
+            "notification",
+            "com.google.android.apps.nbu.paisa.user",
+            baseNow,
+            eventId = "notification:cashback-marketing-1"
+        )
+
+        assertEquals(ParseOutcome.NO_MATCH, outcome.reason)
+        assertEquals(0, store.eventCount())
+        assertTrue(tts.isEmpty())
+    }
+
+    @Test
     fun `sms mirror notification is ignored when sms detection is enabled`() = runBlocking {
         val store = FakePaymentStore()
         val pipeline = pipeline(store)
